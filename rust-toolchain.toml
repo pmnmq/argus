@@ -1,9 +1,10 @@
 # 固定工具链版本，保证本地与 CI 的 lint/编译行为一致。
 #
-# 与 F01 spec §4 的差异：spec 写的是 "1.92"，这里定为 "1.95"。
-# 理由：1.92 在本机与 CI 镜像中都未安装，pin 它只会带来一次无收益的工具链下载；
-# 1.95 是本机已安装的、≥ workspace `rust-version = "1.90"`（MSRV）的稳定版。
-# 升级此文件时必须同步确认 clippy 新增 lint 不会让 CI 突然变红。
+# 定在 1.95：≥ workspace `rust-version = "1.90"`（MSRV），且本机与 CI 都已具备，
+# 不引入一次无收益的工具链下载。（F01 spec §4 原写 1.92，已同步改为 1.95。）
+#
+# 升级此文件时必须同步确认 clippy 新增的 lint 不会让 CI 突然变红 ——
+# argus-protocol 开着 pedantic，而 CI 用 -D warnings，新 lint 会直接变成错误。
 [toolchain]
 channel    = "1.95"
 components = ["clippy", "rustfmt"]

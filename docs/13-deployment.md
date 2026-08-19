@@ -111,7 +111,9 @@ WantedBy=multi-user.target
 
 ```dockerfile
 # 构建阶段
-FROM rust:1.92-alpine AS builder
+# 基础镜像的版本必须与 rust-toolchain.toml 一致，否则 rustup 会在构建时
+# 再下一次工具链，白白拖慢镜像构建。
+FROM rust:1.95-alpine AS builder
 RUN apk add --no-cache musl-dev
 WORKDIR /build
 COPY . .

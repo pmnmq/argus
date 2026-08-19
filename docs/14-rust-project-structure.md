@@ -339,7 +339,7 @@ CI 检查（见 `15-testing-strategy.md` §9）：
 | 选择 | 替代品 | 理由 |
 |------|--------|------|
 | `hyper` 直接用 | `reqwest` | reqwest 会自动解压/重定向（破坏透明性），且 body 类型不透明。见 `02-data-plane.md` §13-A |
-| `rustls` | `openssl` | 静态构建、无系统依赖、无 CVE 追赶 |
+| `rustls` | `openssl` | 静态构建、无系统依赖、无 CVE 追赶（**但见下方 7.3.1**） |
 | `sqlx` | `diesel` / `tokio-postgres` | 异步原生；编译期 SQL 校验（可选）；内置迁移 |
 | `compact_str` | `String` | ≤24 字节 inline，覆盖绝大多数 tool name / event name，零堆分配 |
 | `arc-swap` | `RwLock<Arc<T>>` | 读路径是纯 load，无原子写、无写者饥饿 |
@@ -350,6 +350,32 @@ CI 检查（见 `15-testing-strategy.md` §9）：
 | `figment` | `config` | 分层来源与类型化提取更好用 |
 | `insta` | 手写断言 | golden snapshot 的标准工具，`cargo insta review` 体验好 |
 | `serde_json` 的 `raw_value` | — | `Box<RawValue>` 存 tool arguments 而不构造 DOM |
+
+### 7.3.1 rustls 的加密后端：声明的是 ring，实际跑的是 aws-lc-rs
+
+F01 落地后实测的依赖树：
+
+```
+aws-lc-sys v0.44.0 → aws-lc-rs v1.18.0 → rustls v0.23
+```
+
+上面 §7.1 明确写了 `rustls = { default-features = false, features = ["ring"] }`，
+但 `tokio-rustls` 与 `sqlx` 的默认 feature 打开了 `rustls/aws-lc-rs`，
+**cargo 的 feature 统一是并集，选择更多的那一方赢**——`default-features = false`
+只约束本 crate 自己的声明，管不住别人替 rustls 开的 feature。
+
+后果：构建期需要 cmake + C 工具链。这与选 rustls 的第一条理由
+（静态构建、无系统依赖）直接冲突，也与「单二进制 / NAS 可跑」的目标冲突。
+
+**当前状态：已知，暂不处理**（2026-08-19 决定）。本机与 GitHub runner 都有
+cmake，CI 不会因此变红——它会一直潜伏到 F28 做 musl 静态链接时才暴露。
+
+改法（届时执行）：`tokio-rustls` 加 `default-features = false`，
+`sqlx` 的 `tls-rustls` 换成 `tls-rustls-ring`，然后用
+`cargo tree -i aws-lc-sys` 断言依赖树中不再出现它。
+
+> 换后端会改变 TLS 握手与批量加解密的性能特征。若在 G-M0（F07）之后才换，
+> 涉及 TLS 的基线数字需要重测。
 
 ### 7.4 `codegen-units = 4` 而非 1
 

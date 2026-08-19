@@ -28,6 +28,10 @@
 - **R5** THE SYSTEM SHALL 提供 K8s manifest（`maxUnavailable: 0`、`terminationGracePeriodSeconds > force_kill_after`、`preStop sleep`）。
 - **R6** 构建 SHALL 可复现（`--locked`）。
 - **R7** THE SYSTEM SHALL 发布 SBOM 与 `cargo-deny` 报告。
+- **R8** IF 依赖树中仍存在 `aws-lc-sys` THEN 构建 SHALL 失败并提示改用 ring 后端。
+  R1 的 musl 静态链接与 `aws-lc-sys` 的 C 工具链需求不相容；该问题在 F01
+  就已发现并被显式推迟，见 `docs/14` §7.3.1。断言方式：`cargo tree -i aws-lc-sys`
+  必须无输出。
 
 ## 4. 需求 · 性能回填（G-M4 核心）
 

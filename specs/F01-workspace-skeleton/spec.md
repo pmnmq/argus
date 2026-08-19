@@ -37,7 +37,7 @@
 ```
 argus/
 ├── Cargo.toml            # workspace + [workspace.dependencies] + profile
-├── rust-toolchain.toml   # channel = "1.92", components = [clippy, rustfmt]
+├── rust-toolchain.toml   # channel = "1.95", components = [clippy, rustfmt]
 ├── deny.toml
 ├── clippy.toml           # disallowed-methods
 ├── .cargo/config.toml    # mold 链接器（可选）
@@ -123,3 +123,4 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo build --
 | `cargo-machete` / 编译时间门禁 | F28 |
 | 迁移兼容性检查（`check-migration-compat.sh`） | F12 |
 | golden test 的 `coverage_matrix` 检查 | F10 |
+| 把 rustls 的加密后端从 aws-lc-rs 换回 ring | F28（R8），背景见 `docs/14` §7.3.1 |
