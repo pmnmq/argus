@@ -220,6 +220,28 @@ EOF
 run_case "tee.rs 里写 .send().await" "FAIL [C5]" -- "$INV"
 
 echo ""
+echo "=== 8b. 测试命名约定（docs/15 §4.1） ==="
+cat >> crates/argus-core/src/tee.rs <<'EOF'
+
+#[cfg(test)]
+mod naming_probe {
+    #[test]
+    fn works() {}
+}
+EOF
+run_case "测试起名叫 works()" "FAIL [docs/15 §4.1]" -- "$INV"
+
+cat >> crates/argus-core/src/tee.rs <<'EOF'
+
+#[cfg(test)]
+mod naming_probe {
+    #[test]
+    fn test_retry() {}
+}
+EOF
+run_case "测试名带 test_ 前缀" "FAIL [docs/15 §4.1]" -- "$INV"
+
+echo ""
 echo "=== 9. 拆 crate 需要理由（C32） ==="
 mkdir -p crates/argus-bogus/src
 cat > crates/argus-bogus/Cargo.toml <<'EOF'

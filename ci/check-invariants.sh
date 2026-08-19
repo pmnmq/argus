@@ -173,5 +173,11 @@ if [ "$GUARDED" = 1 ]; then ok "tee/gate 中无阻塞 send"; else echo "  skip t
 echo "=== [C27] 日志敏感字段 ==="
 python3 ci/check_log_fields.py crates || exit 1
 
+# ---------------------------------------------------------------------------
+# 这一条不是宪法条款，是 docs/15 §4.1 的约定。放在这里是因为它和上面几条
+# 一样：能机械检查的东西就不该靠 review 记着。
+echo "=== [docs/15 §4.1] 测试命名 ==="
+python3 ci/check_test_names.py crates || exit 1
+
 echo ""
 echo "全部架构不变式通过。"
