@@ -21,5 +21,9 @@
 // 在该 mod 上写 `#![allow(clippy::unwrap_used, clippy::expect_used)]` 并说明理由，
 // 不要放宽 crate 级别的设置。
 
+pub mod framer;
+
+pub use framer::{FrameData, FrameRef, FrameSink, Framer, FramerConfig, FramerError, SseFramer};
+
 /// 编译期常量，用于 F01 验收：证明 crate 真的被编译进依赖图。
 pub const CRATE_NAME: &str = "argus-protocol";

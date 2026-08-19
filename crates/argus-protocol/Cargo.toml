@@ -18,6 +18,8 @@ bytes       = { workspace = true }
 memchr      = { workspace = true }
 compact_str = { workspace = true }
 smallvec    = { workspace = true }
+# 纯 derive 宏，无运行时代价、无 IO —— 不违反本 crate 的"纯计算"约束
+thiserror   = { workspace = true }
 
 [dev-dependencies]
 insta    = { workspace = true }
