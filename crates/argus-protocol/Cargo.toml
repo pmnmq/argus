@@ -1,0 +1,25 @@
+[package]
+name         = "argus-protocol"
+description  = "Argus L2：纯计算的协议解析与观测 IR（编译期无 IO，见宪法 C6）"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+publish.workspace      = true
+
+# ⚠️ 禁止 tokio / hyper / sqlx / axum / reqwest（宪法 C6、docs/14 §7.2）
+#    "解析层不可能阻塞" 这条性质靠依赖树而不是靠自觉来保证。
+[dependencies]
+argus-core  = { workspace = true }
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+bytes       = { workspace = true }
+memchr      = { workspace = true }
+compact_str = { workspace = true }
+smallvec    = { workspace = true }
+
+[dev-dependencies]
+insta    = { workspace = true }
+proptest = { workspace = true }
+rstest   = { workspace = true }

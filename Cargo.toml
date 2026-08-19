@@ -1,0 +1,140 @@
+# Argus workspace root
+#
+# 依赖清单照抄 docs/14-rust-project-structure.md §7.1，**不要自行调整版本**
+# （F01 spec §5）。各 crate 允许/禁止的依赖见 docs/14 §7.2，由
+# ci/check-invariants.sh 强制（宪法 C6）。
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version      = "0.1.0"
+edition      = "2024"
+rust-version = "1.90"
+license      = "Apache-2.0"
+repository   = "https://github.com/pmnmq/argus"
+# 内部 crate，不发布到 crates.io。这一行同时让 cargo-deny 的
+# allow-wildcard-paths 生效（它对 public crate 不适用）。
+publish      = false
+
+# ---------------------------------------------------------------------------
+# [workspace.dependencies]
+#
+# 注意：cargo 只有这一张表，`[dependencies]` 与 `[dev-dependencies]` 都通过
+# `workspace = true` 引用它（不存在 `[workspace.dev-dependencies]`）。
+# 因此 docs/14 §7.1 中分开列出的 dev 依赖也合并在此，见文件末尾的 "测试工具" 段。
+# ---------------------------------------------------------------------------
+[workspace.dependencies]
+# 内部 crate（依赖方向见宪法 C6）
+argus-core     = { path = "crates/argus-core" }
+argus-protocol = { path = "crates/argus-protocol" }
+argus-proxy    = { path = "crates/argus-proxy" }
+argus-storage  = { path = "crates/argus-storage" }
+
+# 运行时
+tokio        = { version = "1", features = ["rt-multi-thread","net","time","sync","signal","macros"] }
+tokio-util   = { version = "0.7", features = ["rt"] }
+# HTTP
+hyper        = { version = "1", features = ["client","server","http1","http2"] }
+hyper-util   = { version = "0.1", features = ["client-legacy","server-auto","tokio"] }
+http         = "1"
+http-body    = "1"
+http-body-util = "0.1"
+axum         = { version = "0.8", default-features = false, features = ["http1","http2","json","tokio"] }
+tower        = { version = "0.5", features = ["util","limit"] }
+tower-http   = { version = "0.6", features = ["catch-panic","timeout","request-id"] }
+# TLS（rustls，不用 openssl）
+rustls              = { version = "0.23", default-features = false, features = ["ring","tls12"] }
+hyper-rustls        = { version = "0.27", default-features = false, features = ["http1","http2","ring","webpki-tokio"] }
+tokio-rustls        = "0.26"
+webpki-roots        = "0.26"
+# 序列化
+serde        = { version = "1", features = ["derive","rc"] }
+serde_json   = { version = "1", features = ["raw_value","preserve_order"] }
+# 字节与字符串
+bytes        = "1"
+memchr       = "2"
+compact_str  = { version = "0.8", features = ["serde"] }
+smallvec     = { version = "1", features = ["union","const_generics"] }
+# 并发
+arc-swap     = "1"
+dashmap      = "6"
+parking_lot  = "0.12"
+# 存储
+sqlx         = { version = "0.8", default-features = false, features = ["runtime-tokio","tls-rustls","postgres","uuid","chrono","json","macros","migrate"] }
+zstd         = "0.13"
+# 加密
+sha2         = "0.10"
+aes-gcm      = "0.10"
+argon2       = "0.5"
+subtle       = "2"
+zeroize      = { version = "1", features = ["derive"] }
+rand         = "0.8"
+# 安全规则
+regex        = "1"
+aho-corasick = "1"
+# 限流
+governor     = "0.7"
+# 可观测
+tracing              = "0.1"
+tracing-subscriber   = { version = "0.3", features = ["json","env-filter"] }
+tracing-appender     = "0.2"
+metrics              = "0.24"
+metrics-exporter-prometheus = "0.16"
+# 配置与 CLI
+figment      = { version = "0.10", features = ["toml","env"] }
+clap         = { version = "4", features = ["derive","env"] }
+humantime-serde = "1"
+# 杂项
+uuid         = { version = "1", features = ["v4","v7","serde"] }
+chrono       = { version = "0.4", features = ["serde"] }
+thiserror    = "2"
+anyhow       = "1"
+url          = "2"
+moka         = { version = "0.12", features = ["sync"] }
+rlimit       = "0.10"
+memory-stats = "1"
+
+# 可选（feature-gated）
+# 注意：`optional` 不能写在 [workspace.dependencies] 里（cargo 会直接拒绝解析）。
+# 可选性由引用方声明：member 侧写 `{ workspace = true, optional = true }`。
+opentelemetry       = { version = "0.27" }
+opentelemetry-otlp  = { version = "0.27" }
+tracing-opentelemetry = { version = "0.28" }
+redis               = { version = "0.27", features = ["tokio-comp","script"] }
+
+# 测试工具（只能出现在各 crate 的 [dev-dependencies]）
+insta      = { version = "1", features = ["json","redactions"] }
+proptest   = "1"
+criterion  = { version = "0.5", features = ["html_reports"] }
+wiremock   = "0.6"
+rstest     = "0.23"
+
+# ---------------------------------------------------------------------------
+# profile
+# ---------------------------------------------------------------------------
+[profile.release]
+opt-level     = 3
+lto           = "thin"
+codegen-units = 4          # 不用 1：编译时间翻倍，收益 < 3%（docs/14 §7.4）
+# ⚠️⚠️ panic = "unwind" 绝不可改为 "abort"。⚠️⚠️
+# abort 会让单个请求的 panic 杀掉整个进程，连带切断数千条正在进行的 SSE 连接。
+# 见 docs/01-architecture.md §9、宪法 C7。ci/check-invariants.sh 会强制此项。
+panic         = "unwind"
+strip         = "none"     # 保留 debuginfo，panic backtrace 才有行号（配合 debug = 1）
+debug         = 1          # 只生成行号表，不生成完整变量信息
+
+[profile.release-dist]     # 发行版：极致优化
+inherits      = "release"
+lto           = "fat"
+codegen-units = 1
+
+[profile.dev]
+opt-level     = 0
+[profile.dev.package."*"]  # 依赖用 O2 编译，大幅加快 debug 运行速度
+opt-level     = 2
+
+# bench 继承 release 的 panic 策略，避免 profile 之间不一致
+[profile.bench]
+inherits = "release"

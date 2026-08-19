@@ -1,0 +1,20 @@
+# 主链路禁止的阻塞调用（docs/14 §9）。
+# 这是"编译期护栏"的一部分：把"不要在 async 上下文里阻塞"从代码评审
+# 降级成机械检查。新增条目时必须写 reason。
+disallowed-methods = [
+  { path = "std::thread::sleep",       reason = "阻塞 tokio worker，用 tokio::time::sleep" },
+  { path = "std::fs::read",            reason = "阻塞 tokio worker，用 tokio::fs 或 spawn_blocking" },
+  { path = "std::fs::read_to_string",  reason = "同上" },
+  { path = "std::fs::write",           reason = "同上" },
+  { path = "std::io::stdin",           reason = "数据面不读 stdin" },
+]
+
+disallowed-types = [
+  { path = "std::sync::mpsc::Sender",   reason = "同步 channel 会阻塞 async 任务，用 tokio::sync::mpsc" },
+  { path = "std::sync::mpsc::Receiver", reason = "同上" },
+]
+
+# clippy::pedantic 在 argus-protocol 里是 warn + CI 的 -D warnings，
+# 下面两项避免它对领域建模产生噪音。
+too-many-arguments-threshold = 10
+type-complexity-threshold    = 350

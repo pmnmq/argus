@@ -1,0 +1,74 @@
+[package]
+name         = "argus-proxy"
+description  = "Argus L3 数据面：ingress / auth / router / upstream / tee / observer / security"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+publish.workspace      = true
+
+# ⚠️ 禁止 sqlx / argus-storage（宪法 C6）。
+#    数据面对存储的解耦靠 argus-protocol::sink::InteractionSink trait，
+#    不是靠调用 argus-storage —— 这条必须在编译期可证（docs/10 §4.1）。
+[dependencies]
+argus-core     = { workspace = true }
+argus-protocol = { workspace = true }
+
+tokio          = { workspace = true }
+tokio-util     = { workspace = true }
+hyper          = { workspace = true }
+hyper-util     = { workspace = true }
+http           = { workspace = true }
+http-body      = { workspace = true }
+http-body-util = { workspace = true }
+axum           = { workspace = true }
+tower          = { workspace = true }
+tower-http     = { workspace = true }
+rustls         = { workspace = true }
+hyper-rustls   = { workspace = true }
+tokio-rustls   = { workspace = true }
+webpki-roots   = { workspace = true }
+
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+bytes       = { workspace = true }
+memchr      = { workspace = true }
+compact_str = { workspace = true }
+smallvec    = { workspace = true }
+arc-swap    = { workspace = true }
+dashmap     = { workspace = true }
+parking_lot = { workspace = true }
+
+sha2    = { workspace = true }
+subtle  = { workspace = true }
+zeroize = { workspace = true }
+rand    = { workspace = true }
+
+regex        = { workspace = true }
+aho-corasick = { workspace = true }
+governor     = { workspace = true }
+moka         = { workspace = true }
+
+tracing      = { workspace = true }
+metrics      = { workspace = true }
+uuid         = { workspace = true }
+chrono       = { workspace = true }
+thiserror    = { workspace = true }
+url          = { workspace = true }
+memory-stats = { workspace = true }
+rlimit       = { workspace = true }
+
+# Redis 永远是可选的，绝不能成为默认硬依赖（docs/00 §3、docs/09 §8）
+redis = { workspace = true, optional = true }
+
+[features]
+default = []
+redis   = ["dep:redis"]
+
+[dev-dependencies]
+insta     = { workspace = true }
+proptest  = { workspace = true }
+rstest    = { workspace = true }
+wiremock  = { workspace = true }
+criterion = { workspace = true }

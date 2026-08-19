@@ -1,0 +1,25 @@
+[package]
+name         = "argus-core"
+description  = "Argus L1：被所有层共享的基础类型（无内部依赖，见宪法 C6）"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+publish.workspace      = true
+
+# ⚠️ 本 crate 是依赖图的根：禁止依赖任何 argus-* crate（宪法 C6）
+#    也禁止 sqlx / hyper（docs/14 §7.2）
+[dependencies]
+serde       = { workspace = true }
+bytes       = { workspace = true }
+http        = { workspace = true }
+arc-swap    = { workspace = true }
+thiserror   = { workspace = true }
+uuid        = { workspace = true }
+chrono      = { workspace = true }
+compact_str = { workspace = true }
+smallvec    = { workspace = true }
+
+[dev-dependencies]
+rstest = { workspace = true }

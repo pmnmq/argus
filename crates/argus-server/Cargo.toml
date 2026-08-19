@@ -1,0 +1,63 @@
+[package]
+name         = "argus-server"
+description  = "Argus L4：CLI 与组装层（唯一的 bin crate）"
+version.workspace      = true
+edition.workspace      = true
+rust-version.workspace = true
+license.workspace      = true
+repository.workspace   = true
+publish.workspace      = true
+
+[[bin]]
+name = "argus"
+path = "src/main.rs"
+
+# 组装层：允许依赖全部内部 crate。把 argus-storage 的 sink 注入 argus-proxy
+# 这件事只发生在这里 —— 这正是 argus-proxy 能不依赖 sqlx 的原因（宪法 C6）。
+[dependencies]
+argus-core     = { workspace = true }
+argus-protocol = { workspace = true }
+argus-proxy    = { workspace = true }
+argus-storage  = { workspace = true }
+
+tokio      = { workspace = true }
+tokio-util = { workspace = true }
+hyper      = { workspace = true }
+hyper-util = { workspace = true }
+axum       = { workspace = true }
+tower      = { workspace = true }
+tower-http = { workspace = true }
+
+clap            = { workspace = true }
+figment         = { workspace = true }
+humantime-serde = { workspace = true }
+serde           = { workspace = true }
+serde_json      = { workspace = true }
+
+tracing                     = { workspace = true }
+tracing-subscriber          = { workspace = true }
+tracing-appender            = { workspace = true }
+metrics                     = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+
+anyhow       = { workspace = true }
+uuid         = { workspace = true }
+chrono       = { workspace = true }
+rand         = { workspace = true }
+rlimit       = { workspace = true }
+memory-stats = { workspace = true }
+
+# OpenTelemetry 始终可选（docs/11 §8）
+opentelemetry         = { workspace = true, optional = true }
+opentelemetry-otlp    = { workspace = true, optional = true }
+tracing-opentelemetry = { workspace = true, optional = true }
+
+[features]
+default = []
+otel  = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:tracing-opentelemetry"]
+redis = ["argus-proxy/redis"]
+
+[dev-dependencies]
+rstest   = { workspace = true }
+wiremock = { workspace = true }
+insta    = { workspace = true }

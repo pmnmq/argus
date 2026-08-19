@@ -1,0 +1,22 @@
+# 构建加速配置。
+#
+# 链接器优化默认**关闭**：mold / lld 不是所有开发机与 CI 镜像都有，
+# 打开后会让 `cargo build` 直接失败，代价大于收益。需要时取消对应注释。
+#
+# macOS（Xcode 15+ 自带的新链接器已经很快，通常无需额外配置）：
+# [target.aarch64-apple-darwin]
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+#
+# Linux（需要先 `apt install mold`）：
+# [target.x86_64-unknown-linux-gnu]
+# linker    = "clang"
+# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+
+[build]
+# 增量编译只对 dev 有意义，release 下 cargo 本就默认关闭。
+
+[net]
+retry = 3
+
+[term]
+verbose = false

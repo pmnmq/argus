@@ -1,0 +1,9 @@
+/target
+
+# IDE
+/.idea/
+/.vscode/
+
+# 本地覆盖的配置（含真实凭据，绝不入库）
+/config/local.toml
+.env
