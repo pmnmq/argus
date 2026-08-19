@@ -88,16 +88,16 @@ pub struct FramerConfig { pub max_frame_bytes: usize }   // 默认 1 MiB
 
 ## 6. 任务
 
-- [ ] T1 `framer/mod.rs`：`Framer` / `FrameSink` / `FrameRef` / `FramerError` 定义
-- [ ] T2 `framer/sse.rs`：一次扫描的三分隔符查找（注意 §5 的 bug）→ `find_frame_end`
-- [ ] T3 fast path（`buf` 空 + `split_to`）
-- [ ] T4 slow path（跨 chunk 拼接 + 上限检查）
-- [ ] T5 帧内字段解析：`event:` / `data:` / `:` 注释 / 多行 data / `[DONE]`
-- [ ] T6 gap 处理与 `Resync` 状态机
-- [ ] T7 `finish()`：EOF 时的残留帧
-- [ ] T8 `SplitStrategy` 测试工具（本 spec 产出，F10 复用）→ `argus-protocol/tests/split.rs`
-- [ ] T9 property test：任意字节不 panic、缓冲有界
-- [ ] T10 单元测试：§7 的验收清单逐条
+- [x] T1 `framer/mod.rs`：`Framer` / `FrameSink` / `FrameRef` / `FramerError` 定义
+- [x] T2 `framer/sse.rs`：一次扫描的三分隔符查找（注意 §5 的 bug）→ `find_frame_end`
+- [x] T3 fast path（`buf` 空 + `split_to`）
+- [x] T4 slow path（跨 chunk 拼接 + 上限检查）
+- [x] T5 帧内字段解析：`event:` / `data:` / `:` 注释 / 多行 data / `[DONE]`
+- [x] T6 gap 处理与 `Resync` 状态机
+- [x] T7 `finish()`：EOF 时的残留帧
+- [x] T8 `SplitStrategy` 测试工具（本 spec 产出，F10 复用）→ `argus-protocol/tests/split.rs`
+- [x] T9 property test：任意字节不 panic、缓冲有界
+- [x] T10 单元测试：§7 的验收清单逐条
 
 ## 7. 验收
 
@@ -108,19 +108,19 @@ cargo test -p argus-protocol --test split
 
 **必测清单**（`docs/16` §6.1 的验收细节）：
 
-- [ ] `\n\n` / `\r\n\r\n` / `\r\r`，以及**混合出现时取最早**（这是 §5 指出的 bug 点，必须有专门用例）
-- [ ] fast path 不发生 memcpy —— 断言产出的 `Bytes` 与输入共享底层（`Bytes::as_ptr` 落在输入范围内）
-- [ ] slow path 只拷贝残留
-- [ ] `gap_before > 0` → 发出 `emit_gap` + 进入 Resync + 下一个完整帧被正确产出
-- [ ] Resync 超 `max_frame_bytes` → `ResyncFailed`，不 panic
-- [ ] 缓冲超限 → `Overflow`，不 panic
-- [ ] `data: [DONE]` → `FrameRef::Done`
-- [ ] `: ping` 注释行被忽略且计数
-- [ ] 多行 `data:` 用 `\n` 连接
-- [ ] 空 `data:` 行
-- [ ] EOF 时无尾随空行的最后一帧
-- [ ] **`SplitStrategy` 全矩阵（≥ 30 种，含 `ByteByByte`）结果一致**（宪法 C24）
-- [ ] proptest：10 万随机字节不 panic、`buffered_bytes() <= max_frame_bytes`
+- [x] `\n\n` / `\r\n\r\n` / `\r\r`，以及**混合出现时取最早**（这是 §5 指出的 bug 点，必须有专门用例）
+- [x] fast path 不发生 memcpy —— 断言产出的 `Bytes` 与输入共享底层（`Bytes::as_ptr` 落在输入范围内）
+- [x] slow path 只拷贝残留
+- [x] `gap_before > 0` → 发出 `emit_gap` + 进入 Resync + 下一个完整帧被正确产出
+- [x] Resync 超 `max_frame_bytes` → `ResyncFailed`，不 panic
+- [x] 缓冲超限 → `Overflow`，不 panic
+- [x] `data: [DONE]` → `FrameRef::Done`
+- [x] `: ping` 注释行被忽略且计数
+- [x] 多行 `data:` 用 `\n` 连接
+- [x] 空 `data:` 行
+- [x] EOF 时无尾随空行的最后一帧
+- [x] **`SplitStrategy` 全矩阵（≥ 30 种，含 `ByteByByte`）结果一致**（宪法 C24）
+- [x] proptest：10 万随机字节不 panic、`buffered_bytes() <= max_frame_bytes`
 
 ## 8. 交给后续
 
