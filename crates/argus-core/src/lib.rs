@@ -1,10 +1,25 @@
-//! Argus L1 基础层：`Protocol`、`TeeChunk`、配置快照、错误分类等被所有层共享的类型。
+//! Argus L1 基础层：被所有层共享的类型。
 //!
-//! 依赖图的根。**不得**依赖任何 `argus-*` crate（宪法 C6：反向依赖即循环）。
+//! 依赖图的根。**不得**依赖任何 `argus-*` crate（宪法 C6：反向依赖即循环），
+//! 也不得依赖 tokio / hyper / sqlx —— 这里只有数据形状，没有行为。
 //!
-//! 模块布局见 `docs/14-rust-project-structure.md` §5.3；类型定义见 F02。
+//! 模块划分见 `docs/14-rust-project-structure.md` §5.3。
 
 #![forbid(unsafe_code)]
 
-/// 编译期常量，用于 F01 验收：证明 crate 真的被编译进依赖图。
-pub const CRATE_NAME: &str = "argus-core";
+pub mod error;
+pub mod ids;
+pub mod protocol;
+pub mod provider;
+pub mod route;
+pub mod tee;
+
+pub use error::{ProxyError, QuotaKind, UpstreamStage};
+pub use ids::{
+    ApiKeyId, BindingId, ConversationLink, CredentialId, EndpointId, ProviderId, TraceContext,
+    WorkspaceId,
+};
+pub use protocol::{FrameFormat, Protocol, ProviderKind};
+pub use provider::{CredentialKind, InvalidCredential, ResolvedCredential};
+pub use route::{Backoff, ObserveMode, RetryPolicy, RouteDecision, Timeouts};
+pub use tee::{CancelReason, TeeChunk, TeeEnd};

@@ -153,11 +153,14 @@ dependencies = [
  "chrono",
  "compact_str",
  "http",
+ "humantime-serde",
  "rstest",
  "serde",
+ "serde_json",
  "smallvec",
  "thiserror 2.0.20",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
