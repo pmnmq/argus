@@ -100,18 +100,21 @@ pub enum UpstreamStage { Local, S0NotSent, S1Sent, S2Headers, S3Committed }
 
 - `Protocol::supports` 的矩阵直接编码 `docs/04` §4.3 的表，**用 `const fn` + match**，不查表不分配。
 - `ProxyError::is_retryable()` 对 `stage() == S3Committed` 必须**无条件返回 false**，且写一个测试断言这一点（宪法 C18 不可配置）。
-- ID newtype 用宏生成，统一派生 `Copy, Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize, sqlx::Type`。
+- ID newtype 用宏生成，统一派生 `Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Serialize, Deserialize`。
+  **不派生 `sqlx::Type`**：`argus-core` 不得依赖 sqlx（宪法 C6），而孤儿规则又让
+  `argus-storage` 无法给外部类型实现外部 trait。改为提供 `as_uuid()` / `From<Uuid>`，
+  存储层在绑定 SQL 参数时显式转换 —— 边界因此是看得见的。
 - `TeeChunk` 故意不实现 `Copy`（`Bytes` 是引用计数，clone 要显式）。
 
 ## 6. 任务
 
-- [ ] T1 `protocol.rs`：`Protocol` / `ProviderKind` / `FrameFormat` + `as_str` + `supports` 矩阵
-- [ ] T2 `ids.rs`：`id_newtype!` 宏 + 6 个 ID + `TraceContext` / `ConversationLink`
-- [ ] T3 `tee.rs`：`TeeChunk` / `TeeEnd` / `CancelReason`
-- [ ] T4 `route.rs`：`Timeouts` / `RouteDecision` / `RetryPolicy` 骨架（字段照 `docs/02` §10）
-- [ ] T5 `provider.rs`：`ResolvedCredential`（含 redacted Debug + Drop zeroize）
-- [ ] T6 `error.rs`：`ProxyError` + `UpstreamStage` + 四个映射方法
-- [ ] T7 单元测试：`supports` 矩阵逐格断言、S3 不可 retry、credential 不泄漏
+- [x] T1 `protocol.rs`：`Protocol` / `ProviderKind` / `FrameFormat` + `as_str` + `supports` 矩阵
+- [x] T2 `ids.rs`：`id_newtype!` 宏 + 6 个 ID + `TraceContext` / `ConversationLink`
+- [x] T3 `tee.rs`：`TeeChunk` / `TeeEnd` / `CancelReason`
+- [x] T4 `route.rs`：`Timeouts` / `RouteDecision` / `RetryPolicy` 骨架（字段照 `docs/02` §10）
+- [x] T5 `provider.rs`：`ResolvedCredential`（含 redacted Debug + Drop zeroize）
+- [x] T6 `error.rs`：`ProxyError` + `UpstreamStage` + 四个映射方法
+- [x] T7 单元测试：`supports` 矩阵逐格断言、S3 不可 retry、credential 不泄漏
 
 ## 7. 验收
 
@@ -120,10 +123,10 @@ cargo test -p argus-core
 cargo tree -p argus-core -e normal | grep -Eq 'argus-(protocol|proxy|storage|server)' && exit 1  # C6
 ```
 
-- [ ] `Protocol::supports` 的测试覆盖 `docs/04` §4.3 表格的**每一格**（7 kind × 5 protocol = 35 格）
-- [ ] `assert!(!err.is_retryable())` 对所有 `stage() == S3Committed` 的构造成立
-- [ ] `format!("{:?}", credential)` 不含密钥字符，`format!("{}", credential)` 同理
-- [ ] `argus-core` 依赖树中无内部 crate
+- [x] `Protocol::supports` 的测试覆盖 `docs/04` §4.3 表格的**每一格**（7 kind × 5 protocol = 35 格）
+- [x] `assert!(!err.is_retryable())` 对所有 `stage() == S3Committed` 的构造成立
+- [x] `format!("{:?}", credential)` 不含密钥字符，`format!("{}", credential)` 同理
+- [x] `argus-core` 依赖树中无内部 crate
 
 ## 8. 交给后续
 

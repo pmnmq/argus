@@ -453,7 +453,12 @@ pub struct RouteDecision {
     pub attempt:        u8,
     pub provider_id:    ProviderId,
     pub provider_kind:  ProviderKind,
-    pub endpoint_url:   Url,
+    pub endpoint_id:    EndpointId,          // AttemptRecord 要按它归因（07 §7.4）
+    pub binding_id:     BindingId,           // capabilities 挂在 binding 层（07 §4.3）
+    /// hyper 直接消费的类型，省掉每请求一次 parse；clone 是引用计数。
+    /// URL **拼装**（Azure deployment 路径、api-version 等）在 router 里用
+    /// `url::Url` 做，结果在配置解析期转成 Uri 一次。
+    pub endpoint_url:   http::Uri,
     pub credential:     Arc<ResolvedCredential>,
     pub provider_model: CompactString,          // 上游真实模型名
     pub logical_model:  CompactString,

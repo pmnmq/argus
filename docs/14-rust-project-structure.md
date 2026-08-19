@@ -319,7 +319,7 @@ inherits = "release"
 
 | crate | 允许 | **禁止** |
 |-------|------|---------|
-| `argus-core` | serde, bytes, http, arc-swap, thiserror, uuid, chrono, compact_str, smallvec | **任何内部 crate**（它是依赖图的根，反向依赖会造成循环）；tokio（除 `sync` 的类型定义）；sqlx；hyper |
+| `argus-core` | serde, bytes, http, arc-swap, thiserror, uuid, chrono, compact_str, smallvec, zeroize, humantime-serde | **任何内部 crate**（它是依赖图的根，反向依赖会造成循环）；tokio（除 `sync` 的类型定义）；sqlx；hyper |
 | `argus-protocol` | argus-core, serde, serde_json, bytes, memchr, compact_str, smallvec | **tokio, sqlx, hyper, axum, reqwest, std::fs, std::net** |
 | `argus-proxy` | argus-core, argus-protocol, tokio, hyper, axum, tower, regex, governor, moka | **sqlx, argus-storage** |
 | `argus-storage` | argus-core, argus-protocol, sqlx, tokio, zstd | argus-proxy |

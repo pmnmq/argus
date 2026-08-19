@@ -209,16 +209,28 @@ Master key 来源，按优先级：
 ```rust
 pub struct ResolvedCredential {
     pub id: CredentialId,
-    /// 已经预构造好的 header 值，避免每请求重新格式化与分配
-    pub header: HeaderValue,          // 例如 "Bearer sk-..."
     pub kind: CredentialKind,
+    header_name: HeaderName,          // Authorization / x-api-key / api-key
+    /// 完整的 header 值（含 "Bearer " 前缀）。Drop 时清零。
+    value: Zeroizing<Vec<u8>>,
 }
-impl Drop for ResolvedCredential {
-    fn drop(&mut self) { /* zeroize 敏感缓冲 */ }
+
+impl ResolvedCredential {
+    /// 每请求构造一次。结果标为 sensitive，HTTP/2 下不会进 HPACK 动态表。
+    pub fn header_value(&self) -> HeaderValue { .. }
 }
 ```
 
-`HeaderValue` 预构造是一个真实的性能点：每请求做一次 `format!("Bearer {}", key)` 会产生一次堆分配。预构造后每请求只是 `HeaderValue::clone()`（内部 `Bytes`，refcount）。
+**为什么不直接存 `HeaderValue`。** 存预构造好的 `HeaderValue` 看起来更快
+（clone 只是 `Bytes` 的 refcount），但 `HeaderValue` 内部**没有可变访问**，
+Drop 时清不掉 —— 轮换掉的 key 会一直躺在堆上直到分配器复用。这与
+「凭据不落明文」（宪法 C27）冲突，而一个清不掉任何东西的 `Drop` 实现
+比没有更糟：它让人以为已经清理过了。
+
+因此改为自己持有可清零的缓冲，代价是每个上游请求多一次约 60 字节的分配
++ memcpy。注意这是**每请求**一次而不是每帧一次，相对于一次 TLS 往返可以
+忽略；而这一节原本要避免的 `format!("Bearer {}", key)`（格式化 + 分配）
+已经在构造期做掉了。若 F07 的基线显示这次分配确实可见，再回来重新权衡。
 
 Credential 的 `Debug`/`Display` 实现必须打印 `<redacted>`。由 `#[derive]` 禁用 + 手写实现保证。
 
