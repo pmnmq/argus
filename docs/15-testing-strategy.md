@@ -58,6 +58,68 @@ Argus 的正确性风险集中在两个地方：
 
 **② Golden 是重心**。它同时提供最高的正确性保障与最低的编写成本。
 
+### 4.1 测试命名约定
+
+统一格式：
+
+```
+[被测方法名]_[前置条件/测试场景]_[期望结果]
+```
+
+全小写 snake_case，三段之间用 `_` 连接，段内可以有多个词。
+
+```rust
+// ✅
+fn is_retryable_stage_is_s3_committed_returns_false()
+fn header_value_any_credential_marks_the_value_sensitive()
+fn http_status_upstream_status_is_not_representable_returns_502()
+fn supports_protocol_is_bedrock_invoke_returns_false_for_every_kind()
+
+// ❌
+fn test_retry()                      // 什么都没说
+fn s3_not_retryable()                // 缺被测方法名
+fn works()                           // 失败时看名字不知道坏了什么
+fn debug_and_display_are_redacted()  // 两个方法混在一起，见 4.1.2
+```
+
+#### 4.1.1 为什么必须写出被测方法名
+
+CI 失败时人看到的往往只有一行测试名。名字里带着方法名就能直接定位到是哪个
+函数回归了，不用先翻测试体。golden test 有几百个用例时这是刚需。
+
+#### 4.1.2 一个测试只测一个方法
+
+如果「期望结果」那一段写不成一句话，说明这个测试在做两件事，应该拆开。
+
+```rust
+// ❌ 断言了两个不同方法，期望结果写不出来
+fn debug_and_display_are_redacted()
+
+// ✅
+fn debug_credential_holding_a_secret_renders_redacted()
+fn display_credential_holding_a_secret_renders_only_redacted()
+```
+
+同一个方法在一组输入上验证同一个期望，不算两件事，可以合成一个：
+
+```rust
+// ✅ 一个方法、一个期望、一组输入
+fn is_retryable_upstream_status_is_transient_returns_true()
+```
+
+#### 4.1.3 没有前置条件时，中间段可以省
+
+构造函数、默认值这类没有场景可言的，允许两段，但仍要说清期望：
+
+```rust
+fn default_observe_mode_no_pressure_returns_full()
+fn upstream_stage_ord_follows_the_state_machine_direction()
+```
+
+#### 4.1.4 golden test 不适用本节
+
+golden 用例名由 fixture 目录名生成（见 §5.1），目录名另有约定。
+
 ---
 
 ## 5. Golden Test 系统（核心）
