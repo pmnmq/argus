@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0        # CI 上增量编译只会拖慢并撑大缓存
+  RUST_BACKTRACE: 1
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 快而严的一档：格式 + lint + 架构不变式。绝大多数问题在这里就被拦下。
+  lint:
+    name: fmt / clippy / invariants
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      # rust-toolchain.toml 决定版本，这里不要再写死
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
+
+      # 架构不变式：宪法里可机械强制的那些条款（C4/C5/C6/C7/C8/C9/C27/C32）
+      - name: 架构不变式
+        run: ./ci/check-invariants.sh
+
+      # 护栏的护栏：逐条注入违规，确认检查真的会失败
+      # 这一步比上一步更重要 —— 它防止 check-invariants.sh 悄悄失效
+      - name: 护栏有效性
+        run: ./ci/verify-guards.sh
+
+  # 依赖卫生：许可证、已知漏洞、来源、禁用包
+  deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+          arguments: --all-features
+
+  test:
+    name: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --workspace --all-features --locked
+
+  build:
+    name: release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      # --locked：CI 不允许悄悄改 Cargo.lock
+      - name: cargo build --release
+        run: cargo build --workspace --release --locked
+
+      # F01 R10：4 分钟预算。这里记录冷/热编译时长，F28 会把它变成硬门禁。
+      - name: 记录编译耗时
+        if: always()
+        run: |
+          echo "构建完成。R10 预算 = 4 分钟（4 核）。" >> "$GITHUB_STEP_SUMMARY"
+          echo "编译时间门禁在 F28 才收紧，见 docs/14 §8。" >> "$GITHUB_STEP_SUMMARY"
