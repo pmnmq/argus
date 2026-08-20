@@ -120,17 +120,27 @@ pub fn resolve_target(
 /// 写错的 `base_url` 能一路静默地变成「往自己身上发请求」。这一步是那种
 /// 静默失败的最后一道门。
 ///
+/// 注意 `scheme().is_some()` **不够**：实测 `Uri` 会把 `://x.com` 解析成
+/// scheme 为**空串**、authority 为 `x.com` 的 URI —— 看着绝对，实际连不上
+/// 任何东西。所以要看的是 scheme 串非空。
+///
 /// # Errors
 ///
-/// 缺 scheme 或缺 authority 时返回 `on_relative`。
+/// 缺 scheme（含空 scheme）或缺 authority 时返回 `on_relative`。
 pub(crate) fn ensure_absolute(
     uri: http::Uri,
     on_relative: ProxyError,
 ) -> Result<http::Uri, ProxyError> {
-    if uri.scheme().is_none() || uri.authority().is_none() {
-        return Err(on_relative);
+    if is_absolute(&uri) {
+        Ok(uri)
+    } else {
+        Err(on_relative)
     }
-    Ok(uri)
+}
+
+/// 有**非空** scheme 且有 authority。
+pub(crate) fn is_absolute(uri: &http::Uri) -> bool {
+    uri.scheme().is_some_and(|s| !s.as_str().is_empty()) && uri.authority().is_some()
 }
 
 /// 把未解码的 query 原样接到 `out` 后面。
