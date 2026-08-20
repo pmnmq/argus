@@ -139,6 +139,10 @@ crates/argus-proxy/src/
 │   ├── managed.rs   # /provider/{name}/… 的 Resolver
 │   └── raw.rs       # /raw/… 的 Resolver（两种 URL 形式）
 ├── target/          # Target Policy：scheme/CIDR/端口判定、DNS 解析与连接时确认
+│   ├── cidr.rs      # CIDR 解析与最长前缀匹配
+│   ├── policy.rs    # TargetPolicy：scheme / hostname / IP / 端口
+│   ├── resolve.rs   # DnsResolver + 逐 IP 判定 + 已判定地址的缓存
+│   └── connector.rs # PinnedConnector：只连已判定地址
 ├── auth/            # KeyCache / 认证 / 授权 / EffectiveLimits
 ├── quota/           # GCRA 限流 / token & cost 软配额
 ├── upstream/        # hyper client / header 变换 / retry 状态机 / 连接池

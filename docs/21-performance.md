@@ -351,7 +351,7 @@ Mock Provider 需要能模拟：正常流、慢首 token、中途断开、超大
 | 项 | 预期成本 | 怎么摊薄 | 指标 |
 |---|---|---|---|
 | Target Policy 判定 | CIDR 匹配 ~µs 级 | 预编译成 trie | `argus_target_policy_duration_us` |
-| DNS 解析 | **首次可能数十 ms** | 带 TTL 上限的缓存（`13` §6.1） | `argus_dns_resolve_duration_us`、`argus_dns_cache_hit_ratio` |
+| DNS 解析 | **首次可能数十 ms** | 带 TTL 上限的缓存（`13` §6.1） | `argus_dns_resolve_duration_us`、`argus_dns_cache_hits_total` / `_misses_total`（命中率在 Prometheus 侧算，进程内不维护比值） |
 
 DNS 是这里唯一有量级风险的一项。**缓存未命中时它直接计入 TTFT。**
 基准必须分别测「缓存命中」与「缓存未命中」两条路径，不能只报平均值。
