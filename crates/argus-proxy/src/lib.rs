@@ -9,6 +9,7 @@
 #![forbid(unsafe_code)]
 
 pub mod ingress;
+pub mod observer;
 pub mod target;
 
 /// 编译期常量，用于 F01 验收：证明 crate 真的被编译进依赖图。

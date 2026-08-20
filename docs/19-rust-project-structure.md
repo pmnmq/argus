@@ -149,6 +149,8 @@ crates/argus-proxy/src/
 ├── tee.rs           # TeeBody / TeeHandle
 ├── gate.rs          # GatedBody（ToolGate 的主链路侧）
 ├── observer/        # Observer task / ObserverKind 解析 / ObserveMode 决策
+│   ├── mod.rs       # 四级判定：provisional / resolve_observer / Raw 猜测表
+│   └── rules.rs     # observer_rules 有序表与 AND 匹配
 └── security/        # 规则引擎 / PreflightGuard / StreamGuard / ToolGate / PostGuard
     ├── rules/
     ├── extract.rs
