@@ -38,33 +38,54 @@ Profile 的加载与缓存（→ F11）。
 - **R5** THE SYSTEM SHALL NOT 做 path 规范化：不折叠 `//`、不解 `.`/`..`、不改大小写。
 - **R6** WHEN 路径为 `/provider/{name}`（无尾斜杠、无 path）THE SYSTEM SHALL
   返回 400 `empty_upstream_path`，**不默认补 `/`**。
-- **R7** THE SYSTEM SHALL 只对 profile 名做一次百分号解码，且解码后必须仍匹配
-  `^[a-z0-9][a-z0-9-]{0,62}$`，否则 400 —— 拒绝 `%6Fpenai` 这类绕过写法。
+- **R7** THE SYSTEM SHALL 对 profile 名的**原始字节**做字符集校验
+  （`^[a-z0-9][a-z0-9-]{0,62}$`），**全程不 decode**。`%` 不在字符集内，
+  `%6Fpenai` 因此直接 400（`docs/03` §7、`docs/04` §5.3）。
 - **R8** THE SYSTEM SHALL 接受两种 Raw 形式：`/raw/{scheme}://{authority}{path}`
   与 `/raw/{scheme}/{authority}{path}`，产出**同一个** target。
 - **R9** IF Raw target 缺少 scheme 或 scheme 不在白名单 THEN SHALL 返回 400，
   **不默认补 `https`**。
 - **R10** THE SYSTEM SHALL 正确处理 IPv6 字面量（`[2001:db8::1]:8000`）。
 - **R11** 对任意输入 THE SYSTEM SHALL NOT panic。
+- **R12** IF Raw 的 authority 为空或含 userinfo THEN SHALL 返回 400
+  `invalid_raw_target`（`docs/04` §4.4）。
+- **R13** WHEN Raw target 没有 path（`/raw/https://host`）THE SYSTEM SHALL
+  转发到根路径，**不**报 `empty_upstream_path` —— 那条只对 Managed 成立，
+  理由见 `docs/04` §4.4 末段。
 
 ## 4. 接口契约
 
 ```rust
 pub trait TargetResolver {
     /// 只读原始字节。返回值里的 uri 已经是完整上游地址
-    fn resolve(&self, req: &Parts, snapshot: &ConfigSnapshot)
+    fn resolve(&self, parts: &Parts, profiles: &dyn ProfileRegistry)
         -> Result<ResolvedTarget, ProxyError>;
 }
 pub struct ManagedResolver;
 pub struct RawResolver;
 
+/// Resolver 需要的 Profile 字段，**只有这些**。
+/// F11 落地 `ConfigSnapshot` 之后由它实现本 trait。
+pub trait ProfileRegistry {
+    fn lookup(&self, name: &str) -> Option<ProfileView<'_>>;
+}
+pub struct ProfileView<'a> { /* id / name / base_url / enabled / credential / … */ }
+
 /// 按字节切第一个 path 段。不 decode
-pub fn split_first_segment(path: &str) -> Option<(&str, &str)>;
+pub fn split_first_segment(tail: &str) -> Option<(&str, &str)>;
+
+/// profile 名字符集校验，直接作用在**原始字节**上（`docs/03` §7）
+pub fn is_valid_profile_name(raw: &str) -> bool;
 
 /// 判别 Raw 的两种形式
 pub enum RawForm { Direct, Segmented }
 pub fn detect_raw_form(rest: &str) -> Result<(RawForm, Scheme, &str), ProxyError>;
 ```
+
+> **为什么不是 `ConfigSnapshot`**：配置系统属于 F11（M1），而 R02 在 M0。
+> Resolver 真正需要的只有「按名字拿到 base_url 与几项策略」，把它收成一个
+> trait，R02 就能自洽收口而不必把 F11 提前拽进 M0。F11 到时候给
+> `ConfigSnapshot` impl 一下即可，Resolver 一行不用改。
 
 ## 5. 实现要点
 
