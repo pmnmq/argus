@@ -315,11 +315,7 @@ mod tests {
 
     #[test]
     fn display_invalid_credential_error_contains_no_secret_fragment() {
-        assert!(
-            !InvalidCredential::NotAHeaderValue
-                .to_string()
-                .contains("sk-")
-        );
+        assert!(!InvalidCredential::NotAHeaderValue.to_string().contains("sk-"));
     }
 
     #[test]

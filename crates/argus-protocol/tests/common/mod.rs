@@ -88,14 +88,12 @@ impl SplitStrategy {
                 (step..n).step_by(step).collect()
             }
             Self::AtBoundaries => separator_spans(input).map(|(_, end)| end).collect(),
-            Self::InsideBoundaries => separator_spans(input)
-                .filter(|(s, e)| e - s > 1)
-                .map(|(s, _)| s + 1)
-                .collect(),
-            Self::SplitFieldPrefix => find_all(input, b"data:")
-                .into_iter()
-                .flat_map(|i| [i + 1, i + 4])
-                .collect(),
+            Self::InsideBoundaries => {
+                separator_spans(input).filter(|(s, e)| e - s > 1).map(|(s, _)| s + 1).collect()
+            }
+            Self::SplitFieldPrefix => {
+                find_all(input, b"data:").into_iter().flat_map(|i| [i + 1, i + 4]).collect()
+            }
             // xorshift64*：固定种子，跨平台可复现。不用 rand，测试不该依赖它的版本。
             Self::Seeded(seed) => {
                 let mut state = seed.wrapping_mul(2_685_821_657_736_338_717).max(1);

@@ -72,3 +72,6 @@ proptest  = { workspace = true }
 rstest    = { workspace = true }
 wiremock  = { workspace = true }
 criterion = { workspace = true }
+
+[lints]
+workspace = true

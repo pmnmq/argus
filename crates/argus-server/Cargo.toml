@@ -61,3 +61,6 @@ redis = ["argus-proxy/redis"]
 rstest   = { workspace = true }
 wiremock = { workspace = true }
 insta    = { workspace = true }
+
+[lints]
+workspace = true

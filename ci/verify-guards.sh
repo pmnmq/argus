@@ -242,6 +242,36 @@ EOF
 run_case "测试名带 test_ 前缀" "FAIL [docs/20 §4.1]" -- "$INV"
 
 echo ""
+echo "=== 8c. 全 workspace 的 clippy 基线 ==="
+cat >> crates/argus-core/src/lib.rs <<'EOF'
+
+pub fn lint_probe() -> u8 {
+    7
+}
+EOF
+run_case "argus-core 里漏了 #[must_use]（pedantic）" "must_use" -- \
+  cargo clippy -p argus-core --offline -- -D warnings
+
+cat >> crates/argus-core/src/lib.rs <<'EOF'
+
+#[must_use]
+pub fn lint_probe() -> u8 {
+    let x = 7;
+    dbg!(x)
+}
+EOF
+run_case "argus-core 里留了 dbg!()" "dbg_macro" -- \
+  cargo clippy -p argus-core --offline -- -D warnings
+
+echo ""
+echo "=== 8d. 格式化（rustfmt） ==="
+cat >> crates/argus-core/src/lib.rs <<'EOF'
+
+pub fn  badly_formatted( ) ->u8{7}
+EOF
+run_case "写了没格式化的代码" "Diff in" -- ./ci/fmt.sh --check
+
+echo ""
 echo "=== 9. 拆 crate 需要理由（C32） ==="
 mkdir -p crates/argus-bogus/src
 cat > crates/argus-bogus/Cargo.toml <<'EOF'

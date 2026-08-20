@@ -248,10 +248,8 @@ impl Framer for SseFramer {
             State::Failed(err) => return Err(err),
             // resync 没成功就 EOF 了：残留是半截帧，丢掉。
             State::Resync { .. } => {
-                self.stats.dropped_bytes = self
-                    .stats
-                    .dropped_bytes
-                    .saturating_add(self.buf.len() as u64);
+                self.stats.dropped_bytes =
+                    self.stats.dropped_bytes.saturating_add(self.buf.len() as u64);
                 self.buf.clear();
                 return Ok(());
             }
@@ -554,8 +552,7 @@ mod tests {
     fn buffered_bytes_after_partial_frame_returns_residue_length() {
         let mut f = framer();
         let mut rec = Recorder::default();
-        f.push(&chunk(b"data: a\n\ndata: partial"), &mut rec)
-            .unwrap();
+        f.push(&chunk(b"data: a\n\ndata: partial"), &mut rec).unwrap();
         assert_eq!(rec.recs, vec![event("a")]);
         assert_eq!(f.buffered_bytes(), b"data: partial".len());
     }
@@ -574,8 +571,7 @@ mod tests {
     fn push_frame_has_event_field_exposes_it() {
         let mut f = framer();
         let mut rec = Recorder::default();
-        f.push(&chunk(b"event: message_start\ndata: {}\n\n"), &mut rec)
-            .unwrap();
+        f.push(&chunk(b"event: message_start\ndata: {}\n\n"), &mut rec).unwrap();
         assert_eq!(
             rec.recs,
             vec![Rec::Event {
@@ -590,8 +586,7 @@ mod tests {
     fn push_frame_is_only_comments_emits_comment_and_counts_it() {
         let mut f = framer();
         let mut rec = Recorder::default();
-        f.push(&chunk(b": ping\n\n: keep-alive\n\n"), &mut rec)
-            .unwrap();
+        f.push(&chunk(b": ping\n\n: keep-alive\n\n"), &mut rec).unwrap();
         assert_eq!(rec.recs, vec![Rec::Comment, Rec::Comment]);
         assert_eq!(f.stats().comments, 2);
         assert_eq!(f.stats().frames, 0, "注释不算帧");
@@ -667,8 +662,7 @@ mod tests {
         let mut f = framer();
         let mut rec = Recorder::default();
 
-        f.push(&chunk(b"data: first\n\ndata: half"), &mut rec)
-            .unwrap();
+        f.push(&chunk(b"data: first\n\ndata: half"), &mut rec).unwrap();
         assert_eq!(rec.recs, vec![event("first")]);
 
         // 丢了 500 字节，缓冲里那半截 "data: half" 已经和后续不连续了
@@ -734,9 +728,7 @@ mod tests {
         });
         let mut rec = Recorder::default();
 
-        let err = f
-            .push(&TeeChunk::new(Bytes::from(vec![b'a'; 100])), &mut rec)
-            .unwrap_err();
+        let err = f.push(&TeeChunk::new(Bytes::from(vec![b'a'; 100])), &mut rec).unwrap_err();
 
         assert!(matches!(err, FramerError::Overflow(n) if n == 100));
         assert!(rec.recs.is_empty());
@@ -749,9 +741,7 @@ mod tests {
         let mut f = SseFramer::new(FramerConfig { max_frame_bytes: 8 });
         let mut rec = Recorder::default();
 
-        let first = f
-            .push(&TeeChunk::new(Bytes::from(vec![b'a'; 40])), &mut rec)
-            .unwrap_err();
+        let first = f.push(&TeeChunk::new(Bytes::from(vec![b'a'; 40])), &mut rec).unwrap_err();
         let second = f.push(&chunk(b"data: a\n\n"), &mut rec).unwrap_err();
         assert_eq!(first, second);
         assert!(rec.recs.is_empty());
@@ -761,15 +751,13 @@ mod tests {
     fn finish_after_a_fatal_error_returns_the_same_error() {
         let mut f = SseFramer::new(FramerConfig { max_frame_bytes: 8 });
         let mut rec = Recorder::default();
-        let err = f
-            .push(&TeeChunk::new(Bytes::from(vec![b'a'; 40])), &mut rec)
-            .unwrap_err();
+        let err = f.push(&TeeChunk::new(Bytes::from(vec![b'a'; 40])), &mut rec).unwrap_err();
         assert_eq!(f.finish(&mut rec).unwrap_err(), err);
     }
 
     // ── finish ────────────────────────────────────────────────────────
 
-    /// `docs/04` 坑 C8：真实 provider 异常结束时最后一帧没有尾随空行。
+    /// `docs/09` 坑 C8：真实 provider 异常结束时最后一帧没有尾随空行。
     #[test]
     fn finish_last_frame_lacks_trailing_blank_line_still_emits_it() {
         let mut f = framer();
@@ -813,8 +801,7 @@ mod tests {
     fn stats_after_two_frames_and_one_comment_counts_each_kind() {
         let mut f = framer();
         let mut rec = Recorder::default();
-        f.push(&chunk(b"data: a\n\n: ping\n\ndata: [DONE]\n\n"), &mut rec)
-            .unwrap();
+        f.push(&chunk(b"data: a\n\n: ping\n\ndata: [DONE]\n\n"), &mut rec).unwrap();
         let s = f.stats();
         assert_eq!(s.frames, 2, "Done 算帧，Comment 不算");
         assert_eq!(s.comments, 1);

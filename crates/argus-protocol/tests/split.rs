@@ -136,18 +136,12 @@ fn apply_every_strategy_produces_no_empty_pieces() {
 #[test]
 fn buffered_bytes_feeding_byte_by_byte_stays_below_the_longest_frame() {
     let input = CORPUS[1].1;
-    let longest = input
-        .split(|b| *b == b'\n')
-        .map(<[u8]>::len)
-        .max()
-        .unwrap_or(0);
+    let longest = input.split(|b| *b == b'\n').map(<[u8]>::len).max().unwrap_or(0);
 
     let mut framer = SseFramer::new(FramerConfig::default());
     let mut out = Collector::default();
     for piece in SplitStrategy::ByteByByte.apply(input) {
-        framer
-            .push(&TeeChunk::new(Bytes::from(piece)), &mut out)
-            .unwrap();
+        framer.push(&TeeChunk::new(Bytes::from(piece)), &mut out).unwrap();
         assert!(
             framer.buffered_bytes() <= input.len(),
             "缓冲超过了整个输入的长度"

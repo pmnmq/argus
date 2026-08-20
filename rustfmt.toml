@@ -1,0 +1,29 @@
+# Rustfmt 配置。
+#
+# 工具链固定在 stable（rust-toolchain.toml），因此**只有 stable 支持的选项
+# 才会真正生效**。下面用 ⚠️ 标出了 nightly-only 的项：stable 上 rustfmt 会
+# 打一条 warning 然后忽略它们，不会失败。
+
+# ── stable：真正生效的 ─────────────────────────────────────────────
+hard_tabs        = false
+tab_spaces       = 4
+max_width        = 100
+chain_width      = 80    # 默认是 max_width 的 60%（即 60），放宽到 80
+array_width      = 60
+struct_lit_width = 18
+fn_params_layout = "Tall"
+reorder_imports  = true  # use 语句按字母序排，std:: 排在最前
+
+# ── ⚠️ nightly-only：stable 上会被忽略 ─────────────────────────────
+# 合并同一个 crate 的 use 语句：use a::{b, c}; 而不是两行。
+# 要它真的生效需要 nightly 工具链 —— 见文件末尾的说明。
+imports_granularity = "Crate"
+
+# 下面两项同样是 nightly-only，暂不启用：
+# unstable_features = true
+# group_imports = "StdExternalCrate"   # std / 外部 crate / 本地 crate 分三组
+
+# 说明：为了 import 排版而把整条工具链换到 nightly 是不划算的 ——
+# nightly 会让 clippy 的 lint 集合随时变动，CI 可能在没人改代码的日子里变红。
+# `imports_granularity` 留在这里，等将来固定某个 nightly 做 fmt-only 任务，
+# 或者它进入 stable 时自动生效。

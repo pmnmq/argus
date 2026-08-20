@@ -59,12 +59,11 @@ proptest! {
         let mut f = framer();
         let mut out = Counter::default();
         for p in pieces {
-            match f.push(&TeeChunk::new(Bytes::from(p)), &mut out) {
-                Ok(()) => prop_assert!(f.buffered_bytes() <= MAX),
-                Err(_) => {
-                    prop_assert_eq!(f.buffered_bytes(), 0, "失败后必须释放缓冲");
-                    break;
-                }
+            if f.push(&TeeChunk::new(Bytes::from(p)), &mut out).is_ok() {
+                prop_assert!(f.buffered_bytes() <= MAX);
+            } else {
+                prop_assert_eq!(f.buffered_bytes(), 0, "失败后必须释放缓冲");
+                break;
             }
         }
     }
@@ -130,7 +129,9 @@ fn push_one_hundred_thousand_random_bytes_never_panics() {
                 0 | 1 => b'\n',
                 2 => b'\r',
                 3 => b':',
-                _ => (state >> 32) as u8,
+                // 取高位的一个字节。用 to_le_bytes 而不是 `as u8`：
+                // 截断是有意的，但 `as` 让人分不清有意还是手滑。
+                _ => (state >> 32).to_le_bytes()[0],
             }
         })
         .collect();
@@ -138,9 +139,7 @@ fn push_one_hundred_thousand_random_bytes_never_panics() {
     let mut f = framer();
     let mut out = Counter::default();
     for piece in SplitStrategy::Seeded(7).apply(&input) {
-        if f.push(&TeeChunk::new(Bytes::from(piece)), &mut out)
-            .is_err()
-        {
+        if f.push(&TeeChunk::new(Bytes::from(piece)), &mut out).is_err() {
             // 超限是合法结局，只要不 panic
             return;
         }

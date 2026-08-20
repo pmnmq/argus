@@ -18,3 +18,14 @@ disallowed-types = [
 # 下面两项避免它对领域建模产生噪音。
 too-many-arguments-threshold = 10
 type-complexity-threshold    = 350
+
+# 文档注释里的专有名词。
+#
+# clippy::doc_markdown 会把 `PostgreSQL`、`OpenAI` 这类驼峰词当成"忘了加反引号
+# 的标识符"。给产品名加反引号是错的 —— 它们是散文里的名词，不是代码。
+# 末尾的 ".." 表示在 clippy 的默认清单之上追加，而不是替换掉它。
+doc-valid-idents = [
+  "OpenAI", "PostgreSQL", "UUIDv7", "OAuth2", "SigV4",
+  "DeepSeek", "vLLM", "Ollama", "Groq", "OpenAPI",
+  "..",
+]

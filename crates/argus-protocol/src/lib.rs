@@ -15,7 +15,7 @@
     clippy::unreachable,
     clippy::todo
 )]
-#![warn(clippy::pedantic)]
+// clippy::pedantic 现在由 [workspace.lints] 统一开启，见根 Cargo.toml
 
 // 说明：上面的 deny 列表对 `#[cfg(test)]` 模块同样生效。测试里要用 unwrap 时，
 // 在该 mod 上写 `#![allow(clippy::unwrap_used, clippy::expect_used)]` 并说明理由，
