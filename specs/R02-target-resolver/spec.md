@@ -100,14 +100,16 @@ pub fn detect_raw_form(rest: &str) -> Result<(RawForm, Scheme, &str), ProxyError
 
 ## 6. 任务
 
-- [ ] T1 `ingress/path.rs`：`split_first_segment` + profile 名校验（纯函数，好测）
-- [ ] T2 `ingress/managed.rs`：`ManagedResolver` + 拼接规则
-- [ ] T3 `ingress/raw.rs`：`detect_raw_form` + 两种形式解析
-- [ ] T4 query 透传
-- [ ] T5 IPv6 / 端口 / userinfo 拒绝
-- [ ] T6 `docs/20` §5.1 的 URL 解析矩阵，逐格实现
-- [ ] T7 property test：任意字节不 panic；两种 Raw 形式产出相同 target
-- [ ] T8 一个**会失败的**测试证明不能用 `Path` 提取器（而不是只靠 lint）
+- [x] T1 `ingress/path.rs`：`split_first_segment` + `is_valid_profile_name`
+      + `strip_one_leading_slash` + `strip_prefix_ascii_ci`（纯函数，好测）
+- [x] T2 `ingress/managed.rs`：`ManagedResolver` + 唯一的拼接规则 `join`
+- [x] T3 `ingress/raw.rs`：`detect_raw_form` + `split_authority` + `assemble`
+- [x] T4 query 透传（`ingress::push_query`，Managed 与 Raw 共用一条）
+- [x] T5 IPv6 / 端口 / userinfo 拒绝（`split_authority`）
+- [x] T6 `docs/20` §5.1 的 URL 解析矩阵 → `tests/resolver_matrix.rs`
+- [x] T7 property test → `tests/resolver_props.rs`
+- [x] T8 `tests/resolver_path_extractor.rs`：真的跑一遍 axum 的 `Path`，
+      断言它把 `%2F` 解成了 `/`（而不是只靠 lint）
 
 ## 7. 验收
 
@@ -115,12 +117,15 @@ pub fn detect_raw_form(rest: &str) -> Result<(RawForm, Scheme, &str), ProxyError
 just test -p argus-proxy resolver
 ```
 
-- [ ] `docs/20-testing-strategy.md` §5.1 的矩阵全绿
-- [ ] `/provider/x/v1/models/gpt%2F4` 解析出的 upstream path 仍含 `%2F`
-- [ ] `/provider/x/v1//foo` 的 `//` 保留
-- [ ] 两种 Raw 形式对同一 target 产出 byte-identical 的 `uri`
-- [ ] `/provider/x` → 400；`/raw/api.openai.com/v1` → 400
-- [ ] proptest 10 万随机 path 不 panic
+- [x] `docs/20-testing-strategy.md` §5.1 的矩阵全绿（9 类逐格实现）
+- [x] `/provider/x/v1/models/gpt%2F4` 解析出的 upstream path 仍含 `%2F`，
+      且 path 段数不变（decode 会从 4 段变 5 段）
+- [x] `/provider/x/v1//foo` 的 `//` 保留；`/provider/x//foo` 的也保留
+- [x] 两种 Raw 形式对同一 target 产出 byte-identical 的 `uri`
+- [x] `/provider/x` → 400；`/raw/api.openai.com/v1` → 400
+- [x] proptest 10 万随机 path 不 panic（且断言其中 > 1000 条真的解析成功，
+      否则就是在空转）
+- [x] 全 workspace 测试 103 → 160（新增 57 个：32 单测 + 25 集成）
 
 ## 8. 交给后续
 
@@ -129,3 +134,4 @@ just test -p argus-proxy resolver
 | 判定 target 是否允许连接 | R03 |
 | Observer 选择 | R04 |
 | nginx/Traefik 后的实测 | F21（混沌与集成） |
+| `ProfileRegistry` 的真实实现（现在只有测试夹具） | F11（`ConfigSnapshot`） |

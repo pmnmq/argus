@@ -135,6 +135,7 @@ crates/argus-protocol/src/
 crates/argus-proxy/src/
 ├── lib.rs
 ├── ingress/         # Axum router / **按原始字节切 path** / body ingest / ErrorRenderer
+│   ├── path.rs      # 切分与 profile 名校验的纯函数层
 │   ├── managed.rs   # /provider/{name}/… 的 Resolver
 │   └── raw.rs       # /raw/… 的 Resolver（两种 URL 形式）
 ├── target/          # Target Policy：scheme/CIDR/端口判定、DNS 解析与连接时确认
