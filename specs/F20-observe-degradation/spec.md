@@ -6,7 +6,7 @@
 | 里程碑 | M2 |
 | 依赖 | F06 |
 | 主 crate | `argus-proxy` |
-| 设计依据 | `docs/05-streaming.md` §6.3；`docs/12-reliability.md` §4–5,§7 |
+| 设计依据 | `docs/10-streaming.md` §6.3；`docs/17-reliability.md` §4–5,§7 |
 | 宪法条款 | C9, C10, C11, C12, C13 |
 
 ## 1. 目标
@@ -34,7 +34,7 @@
 
 ## 4. 需求 · 资源隔板
 
-- **R9** THE SYSTEM SHALL 实施 `docs/12` §7.1 的全部隔板：大请求 Semaphore(32)、observer 数上限、sink 队列、tee 双预算、PG 双池、LLM detector 并发。
+- **R9** THE SYSTEM SHALL 实施 `docs/17` §7.1 的全部隔板：大请求 Semaphore(32)、observer 数上限、sink 队列、tee 双预算、PG 双池、LLM detector 并发。
 - **R10** 每个隔板满时 THE SYSTEM SHALL **立即拒绝**，不排队（宪法 C12）。
 - **R11** WHEN body 大小超过 `large_threshold`（256 KiB）THE SYSTEM SHALL 需先获取大请求许可；获取失败返回 503。
 - **R12** WHEN 并发请求数超过 `max_concurrent_requests` THE SYSTEM SHALL load shed（503 + `Retry-After: 1`）并计 `argus_load_shed_total`。
@@ -93,7 +93,7 @@ impl MemoryWatchdog { pub fn detect_limit() -> u64; /* cgroup v2 → v1 → 系�
 - `Lite` 模式的实现不是"少存"，而是**在 Accumulator 层就不累积正文**（`AccumulatorConfig` 加 `mode` 字段），否则内存并没省。
 - **R14 的 cgroup 检测容易做错**：容器里读 `/proc/meminfo` 会拿到宿主机的内存。必须按 v2 → v1 → fallback 的顺序探测。
 - R15 的"收紧 10%"是渐进的：每次触发收紧当前值的 10%，不是一次砍到 90%。避免抖动导致连续收紧。
-- `runtime.split` 默认关闭且 §7 只做基本验证——`docs/12` OQ-6 明确它的真实收益未验证。**不要在没有 profile 数据时打开它**。
+- `runtime.split` 默认关闭且 §7 只做基本验证——`docs/17` OQ-6 明确它的真实收益未验证。**不要在没有 profile 数据时打开它**。
 
 ## 9. 任务
 
@@ -136,4 +136,4 @@ cargo test -p argus-proxy limits observer::load
 | `force_full_observation` 的策略来源 | F24 |
 | 混沌验证（内存压力下的行为） | F21 |
 | `runtime.split` 的收益实测 | F28 |
-| per-workspace 观测配额 | Phase 3（`docs/05` OQ-4） |
+| per-workspace 观测配额 | Phase 3（`docs/10` OQ-4） |

@@ -6,7 +6,7 @@
 | 里程碑 | M1 |
 | 依赖 | F02 |
 | 主 crate | `argus-core` + `argus-server` |
-| 设计依据 | `docs/13-deployment.md` §5；`docs/01-architecture.md` §7 |
+| 设计依据 | `docs/18-deployment.md` §5；`docs/01-architecture.md` §7 |
 | 宪法条款 | C20, C27 |
 
 ## 1. 目标
@@ -21,12 +21,12 @@
 
 ## 3. 需求
 
-- **R1** THE SYSTEM SHALL 支持 `docs/13` §5.3 的完整配置树，键名逐字一致。
+- **R1** THE SYSTEM SHALL 支持 `docs/18` §5.3 的完整配置树，键名逐字一致。
 - **R2** THE SYSTEM SHALL 按 `默认值 < TOML 文件 < 环境变量 < CLI 参数` 的优先级合并。
 - **R3** 环境变量 SHALL 用 `ARGUS_` 前缀，`__` 映射层级（如 `ARGUS_LIMITS__MAX_ACTIVE_STREAMS`）。
-- **R4** THE SYSTEM SHALL 提供 `nano` / `small` / `medium` / `large` 四个 profile 作为默认值集合（`docs/13` §5.4）。
+- **R4** THE SYSTEM SHALL 提供 `nano` / `small` / `medium` / `large` 四个 profile 作为默认值集合（`docs/18` §5.4）。
 - **R5** WHEN 指定 profile 且同时显式配置某项 THE SYSTEM SHALL 以显式配置为准。
-- **R6** THE SYSTEM SHALL 区分进程配置与业务配置，二者不重叠（`docs/13` §5.1）。
+- **R6** THE SYSTEM SHALL 区分进程配置与业务配置，二者不重叠（`docs/18` §5.1）。
 - **R7** WHEN 配置含未知键 THE SYSTEM SHALL 拒绝启动并指出键名与最相近的合法键（typo 保护）。
 - **R8** WHEN 配置项之间存在矛盾 THE SYSTEM SHALL 拒绝启动并说明矛盾（见 §5 校验清单）。
 - **R9** THE SYSTEM SHALL 支持从文件读取敏感值（`*_file` 后缀），并检查文件权限为 0600（宪法 C27）。
@@ -93,7 +93,7 @@ impl Profile { pub fn defaults(self) -> figment::Figment; }
 
 ## 6. 任务
 
-- [ ] T1 `config/types.rs`：完整配置树（照 `docs/13` §5.3，逐键对齐）
+- [ ] T1 `config/types.rs`：完整配置树（照 `docs/18` §5.3，逐键对齐）
 - [ ] T2 `config/defaults.rs`：内置默认值
 - [ ] T3 `config/profile.rs`：四个 profile
 - [ ] T4 `config/load.rs`：figment 分层 + 环境变量映射 + CLI
@@ -111,7 +111,7 @@ cargo test -p argus-core config
 argus serve --config config/argus.example.toml --check-only    # 只校验不启动
 ```
 
-- [ ] `docs/13` §5.3 的示例配置能被完整解析（**用它作为测试 fixture，防止文档与代码漂移**）
+- [ ] `docs/18` §5.3 的示例配置能被完整解析（**用它作为测试 fixture，防止文档与代码漂移**）
 - [ ] 四个 profile 各自能解析且通过 validate
 - [ ] 未知键 → 拒绝 + 建议最相近的键
 - [ ] §5 校验清单每条各有一个测试用例

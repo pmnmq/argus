@@ -6,36 +6,43 @@
 | 里程碑 | M1 |
 | 依赖 | F11 |
 | 主 crate | `argus-proxy` |
-| 设计依据 | `docs/02-data-plane.md` §4,§6,§7,§9；`docs/07-provider-routing.md` §4–6；`docs/04-protocols.md` §6 |
+| 设计依据 | `docs/06-data-plane.md` §4,§6,§7,§9；`docs/08-provider-profiles.md` §4–6；`docs/09-observers.md` §6 |
 | 宪法条款 | C1, C3, C18, C23, C28 |
 
+
+> ⚠️ **v2 变更（R01–R04 之后）**：本 spec 的「选路」部分**已不存在**。
+> provider 由 URL 决定（`docs/02-routing-model.md`），解析在 R02，
+> 准入在 R03。本 spec 现在只负责 **header 变换 + 发起上游请求 + 超时**。
+> 下面被 ~~删除线~~ 标记的需求是 v1 遗留，不要实现。
 ## 1. 目标
 
 把 F06 的硬编码上游换成真正的路由：模型三层结构、协议识别、header 变换、URL 构造、`ErrorRenderer`。本切片只做**单候选**，多候选与 retry 留 F16。
 
 ## 2. 范围
 
-**In scope**：入站路由表、`LogicalModel`/`ModelBinding`/`Provider` 加载、能力过滤、URL 构造（4 种 kind）、header 变换表、`ErrorRenderer`、`/v1/models` 合成、S0–S3 阶段机的**结构**。
+**In scope**：header 变换（hop-by-hop 删除、客户端凭据剥离、Profile 凭据注入、
+`extra_headers`、Host 重写、XFF/Via）、hyper 上游客户端与连接池、四段式超时、
+`ResolvedTarget` 到 `Request` 的构造、`ErrorRenderer`。
 
-**Out of scope**：多候选选路与 fallback（→ F16）、熔断与方言（→ F17）、`first_event_gate` 的 provider 级配置（→ F17）。
+**Out of scope**：URL 解析（→ R02）、Target Policy（→ R03）、Observer 选择（→ R04）、同 Profile 重试（→ F16）、熔断与方言（→ F17）。
 
 ## 3. 需求 · 路由
 
-- **R1** THE SYSTEM SHALL 按 `docs/04` §6.1 的表由 URL path 确定 `Protocol`，**不做 body 嗅探**。
-- **R2** THE SYSTEM SHALL 只探测请求体的 `model` 与 `stream` 两个字段，其余不校验（`docs/04` §8）。
+- **R1** THE SYSTEM SHALL 按 `docs/09` §6.1 的表由 URL path 确定 `Protocol`，**不做 body 嗅探**。
+- **R2** THE SYSTEM SHALL 只探测请求体的 `model` 与 `stream` 两个字段，其余不校验（`docs/09` §8）。
 - **R3** IF `model` 缺失 THEN THE SYSTEM SHALL 返回 400（按调用协议的错误形状）。
 - **R4** THE SYSTEM SHALL 支持 `LogicalModel` → `ModelBinding` → `Provider`/`Endpoint` 三层解析，含别名。
-- **R5** IF 请求协议与 binding 的 provider 协议不匹配 THEN THE SYSTEM SHALL 返回 400 `protocol_mismatch`，**不做隐式转换**（宪法 C3）。
+- **R5** ~~协议匹配校验~~ **已删除**：v2 里没有 binding，也没有 `supports` 矩阵（ADR-010）。
 - **R6** THE SYSTEM SHALL 用 `binding.capability_overrides` 覆盖 `LogicalModel.capabilities` 得到有效能力，**overrides 只能收窄**。
-- **R7** THE SYSTEM SHALL 提取 `RequestDemand`（`docs/07` §6.1），提取失败时全部取保守值且**不拒绝请求**。
+- **R7** THE SYSTEM SHALL 提取 `RequestDemand`（`docs/08` §6.1），提取失败时全部取保守值且**不拒绝请求**。
 - **R8** IF 有效能力不满足 `RequestDemand` THEN THE SYSTEM SHALL 返回 400 并列出缺失的能力清单。
 - **R9** `uses_prompt_caching` SHALL 作为软信号（不作硬过滤），不满足时加 `x-argus-warning` 响应头。
-- **R10** THE SYSTEM SHALL 应用 API Key 的 `allowed_models` / `allowed_providers` 作为候选过滤（`docs/09` §7）。
+- **R10** THE SYSTEM SHALL 应用 API Key 的 `allowed_profiles` / `allow_raw_proxy`，且**与「profile 不存在」返回同一个 404**（`docs/14` §7.2 防枚举）。
 
 ## 4. 需求 · Upstream
 
-- **R11** THE SYSTEM SHALL 按 `docs/04` §6.2 的表构造上游 URL（OpenAi / AzureOpenAi / Anthropic / OpenAiCompatible 四种）。
-- **R12** THE SYSTEM SHALL 按 `docs/02` §6.3–6.4 变换 header：剥离 hop-by-hop 与客户端凭据、注入 provider 凭据与必需 header、**未知 header 默认透传**（宪法 C2）。
+- **R11** THE SYSTEM SHALL 按 `docs/09` §6.2 的表构造上游 URL（OpenAi / AzureOpenAi / Anthropic / OpenAiCompatible 四种）。
+- **R12** THE SYSTEM SHALL 按 `docs/06` §6.3–6.4 变换 header：剥离 hop-by-hop 与客户端凭据、注入 provider 凭据与必需 header、**未知 header 默认透传**（宪法 C2）。
 - **R13** THE SYSTEM SHALL 注入 `anthropic-version` 等 `Dialect.required_headers`，不依赖客户端提供。
 - **R14** THE SYSTEM SHALL 实施四段式超时（connect / headers / idle_frame / total）。
 - **R15** THE SYSTEM SHALL 在收到上游 response header 后、写出 client header 前判定 status（S2 检查点）。
@@ -46,10 +53,10 @@
 ## 5. 需求 · 错误与 `/v1/models`
 
 - **R19** THE SYSTEM SHALL 按调用方协议渲染错误体：OpenAI 形状 `{"error":{...}}`，Anthropic 形状 `{"type":"error","error":{...}}`。
-- **R20** WHEN 已进入 S3 THE SYSTEM SHALL 在流内发出协议原生的 error 事件；OpenAI 路径**不发** `[DONE]`（`docs/02` §9）。
+- **R20** WHEN 已进入 S3 THE SYSTEM SHALL 在流内发出协议原生的 error 事件；OpenAI 路径**不发** `[DONE]`（`docs/06` §9）。
 - **R21** 错误体 SHALL NOT 包含 provider 凭据或内部栈信息。
 - **R22** 全部响应 SHALL 携带 `x-argus-request-id`。
-- **R23** `GET /v1/models` SHALL 由 Argus 合成，按 Key 的 `allowed_models` 过滤，扩展信息放 `x-argus` 命名空间（`docs/04` §6.3）。
+- **R23** ~~`GET /v1/models` 由 Argus 合成~~ **已删除**：模型目录不存在了，它现在就是一次普通透传（`docs/09` §6.1）。
 
 ## 6. 接口契约
 
@@ -59,7 +66,7 @@ pub struct Router { snapshot: ConfigHandle }
 impl Router {
     /// 本切片返回单个候选；F16 改为返回有序候选列表
     pub fn resolve(&self, ctx: &RequestCtx, demand: &RequestDemand)
-        -> Result<RouteDecision, RouteError>;
+        -> Result<ResolvedTarget, ProxyError>;
 }
 
 pub enum RouteError {
@@ -87,7 +94,7 @@ pub trait ErrorRenderer { fn render(&self, err: &ProxyError, p: Protocol) -> Res
 ## 7. 实现要点
 
 - **R15 的实现是 F16 能工作的前提**：`Upstream::send` 返回 `Response<Incoming>` 时 body 一次都没被 poll，此时 `drop(resp)` 就能干净地放弃这条上游连接。这个性质要写测试锁死。
-- header 变换用**静态表 + 黑名单**，不要写成一串 if。`STRIP_FROM_CLIENT` 常量照 `docs/02` §6.4。
+- header 变换用**静态表 + 黑名单**，不要写成一串 if。`STRIP_FROM_CLIENT` 常量照 `docs/06` §6.4。
 - `RequestDemand` 提取用容错解析：任何字段解析失败都退化为 `false`/`None`（R7），绝不因此拒绝请求。
 - `capability_overrides` 的"只能收窄"要在两处保证：Control Plane 保存时校验（F22）+ 运行时合并时再保证一次（防御性）。
 - `/v1/models` 的 `x-argus` 扩展字段放在标准字段之外，保证 OpenAI SDK 的严格解析不会失败。
@@ -95,7 +102,7 @@ pub trait ErrorRenderer { fn render(&self, err: &ProxyError, p: Protocol) -> Res
 
 ## 8. 任务
 
-- [ ] T1 `ingress/route_table.rs`：path → Protocol（`docs/04` §6.1 表）
+- [ ] T1 `ingress/route_table.rs`：path → Protocol（`docs/09` §6.1 表）
 - [ ] T2 `ingress/probe.rs`：`model` / `stream` 最小探测
 - [ ] T3 `router/model.rs`：三层解析 + 别名
 - [ ] T4 `router/capability.rs`：`RequestDemand` 提取 + 有效能力计算 + gap 报告

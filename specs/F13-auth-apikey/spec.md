@@ -6,7 +6,7 @@
 | 里程碑 | M1 |
 | 依赖 | F12 |
 | 主 crate | `argus-proxy` + `argus-storage` |
-| 设计依据 | `docs/09-auth.md` §5–7 |
+| 设计依据 | `docs/14-auth-and-credentials.md` §5–7 |
 | 宪法条款 | C17, C19, C27, C28 |
 
 ## 1. 目标
@@ -22,7 +22,7 @@
 ## 3. 需求
 
 - **R1** API Key SHALL 为 `sk-argus-<env>-<key_id>-<secret>`，`secret` 为 32 字节 CSPRNG 随机值。
-- **R2** THE SYSTEM SHALL NOT 接受用户自定义的 secret（这是用快哈希的前提，`docs/09` §5.1）。
+- **R2** THE SYSTEM SHALL NOT 接受用户自定义的 secret（这是用快哈希的前提，`docs/14` §5.1）。
 - **R3** THE SYSTEM SHALL 存储 `sha256(salt || secret)` 与 salt，**不存可还原的完整 Key**（宪法 C27）。
 - **R4** THE SYSTEM SHALL 用常数时间比较验证 secret（`subtle::ConstantTimeEq`）。
 - **R5** THE SYSTEM SHALL 接受 `Authorization: Bearer` / `x-api-key` / `api-key` 三种 header。
@@ -35,7 +35,7 @@
 - **R12** THE SYSTEM SHALL 检查 `expires_at` / `revoked_at` / `ip_allowlist`。
 - **R13** THE SYSTEM SHALL 通过 `revocation_generation` 增量传播吊销，15 秒内生效。
 - **R14** `EffectiveLimits` SHALL 由 workspace 与 key 合并，**key 只能收紧不能放宽**，且在 KeyCache 载入时预计算。
-- **R15** THE SYSTEM SHALL 把 `allowed_providers` 作为**选路过滤条件**而非授权拒绝条件（`docs/09` §7）。
+- **R15** THE SYSTEM SHALL 把 `allowed_providers` 作为**选路过滤条件**而非授权拒绝条件（`docs/14` §7）。
 - **R16** `last_used_at` SHALL 用内存 `AtomicU64` + 60 秒批量 flush，主链路**不得**产生 UPDATE。
 - **R17** 认证的缓存命中路径 SHALL 在 p50 < 10 µs 内完成。
 - **R18** WHERE `trusted_proxies` 已配置 THE SYSTEM SHALL 从 `X-Forwarded-For` 取真实 IP；否则忽略 XFF（防 allowlist 绕过）。
@@ -59,7 +59,7 @@ pub trait KeyRepo: Send + Sync {
     async fn flush_last_used(&self, rows: &[(KeyId, SystemTime)]) -> Result<(), RepoError>;
 }
 
-pub struct PrincipalCtx {   // docs/02 §10
+pub struct PrincipalCtx {   // docs/06 §10
     pub workspace_id: WorkspaceId,
     pub api_key_id: ApiKeyId,
     pub user_id: Option<UserId>,
@@ -82,7 +82,7 @@ argus keys revoke <key_id>
 - `KeyCache` 用 `moka::sync::Cache`（分片并发 + TTL 内建）。正负两个独立实例。
 - stale 判定：`moka` 的 TTL 到期会驱逐，因此**不能直接用 TTL 表达 stale**。做法：`ttl = stale_ttl`（15min），条目内自带 `loaded_at`，逻辑上 `age > 5min` 视为需刷新但仍可用。
 - R11 的"不区分"要落实到**响应体与时序**：无论哪种失败都走同一条返回路径，避免时序侧信道。
-- `EffectiveLimits` 的合并（R14）要在 KeyCache 插入时做一次，不在每请求做集合运算（`docs/09` §7.1）。
+- `EffectiveLimits` 的合并（R14）要在 KeyCache 插入时做一次，不在每请求做集合运算（`docs/14` §7.1）。
 - `authenticate` 是 `async` 但缓存命中路径**不 await**（`moka::sync` 是同步的）；只有 miss 才 await 数据库。
 
 ## 6. 任务
@@ -90,7 +90,7 @@ argus keys revoke <key_id>
 - [ ] T1 `auth/key.rs`：Key 格式、生成、解析、`verify`（常数时间）
 - [ ] T2 `auth/cache.rs`：`KeyCache` 正/负/stale 三态
 - [ ] T3 `auth/extract.rs`：三种 header 提取 + 剥离（R5/R6）+ XFF 处理（R18）
-- [ ] T4 `auth/authn.rs`：`docs/09` §6 的完整流程图
+- [ ] T4 `auth/authn.rs`：`docs/14` §6 的完整流程图
 - [ ] T5 `auth/authz.rs`：`authorize` + `EffectiveLimits` 合并（只收紧）
 - [ ] T6 `auth/revocation.rs`：`revocation_generation` 增量拉取 + 缓存驱逐
 - [ ] T7 `auth/last_used.rs`：AtomicU64 + 60s 批量 flush
@@ -111,7 +111,9 @@ cargo test -p argus-storage keys
 - [ ] **PG 挂 + 缓存未命中 → 503**（R9，fail-close）
 - [ ] 随机 key 连打 1000 次 → 数据库查询次数 ≤ 负缓存容量（R10）
 - [ ] 吊销后 15 秒内所有实例拒绝（R13）
-- [ ] key 尝试放宽 workspace 的 `allowed_models` → 合并结果仍是交集（R14）
+- [ ] key 尝试放宽 workspace 的 `allowed_profiles` → 合并结果仍是交集（R14）
+- [ ] `allow_raw_proxy` 默认 false；未开启时 `/raw/…` 返回 403
+- [ ] 「profile 不存在」与「无权访问」返回**完全相同**的 404（防枚举）
 - [ ] 转发到上游的 header 中**不含**客户端的 `Authorization` / `x-api-key` / 任何 `x-argus-*`（宪法 C28）
 - [ ] 未配 `trusted_proxies` 时伪造 XFF 无法绕过 `ip_allowlist`（R18）
 - [ ] 1000 次认证请求，`last_used_at` 的 UPDATE 次数 ≤ 1（R16）

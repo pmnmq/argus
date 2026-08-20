@@ -6,7 +6,7 @@
 | 里程碑 | M3 |
 | 依赖 | F09 |
 | 主 crate | `argus-proxy` |
-| 设计依据 | `docs/08-security.md` §5–8,§10；`docs/ADR/ADR-006-fail-open-security.md` |
+| 设计依据 | `docs/12-security.md` §5–8,§10；`docs/ADR/ADR-012-fail-open-observation.md` |
 | 宪法条款 | C15, C17, C21, C29 |
 
 ## 1. 目标
@@ -21,10 +21,10 @@
 
 ## 3. 需求 · 引擎
 
-- **R1** THE SYSTEM SHALL 实现 `docs/08` §7.2 的 `Rule` / `RuleTarget` / `Matcher` 模型。
+- **R1** THE SYSTEM SHALL 实现 `docs/12` §7.2 的 `Rule` / `RuleTarget` / `Matcher` 模型。
 - **R2** THE SYSTEM SHALL 实现 Layer 0–2 的匹配器：结构规则、Aho-Corasick、RegexSet、熵检测、指纹、shell 命令分析、工具白名单。
 - **R3** Layer 0–2 SHALL 是确定性的（不依赖 LLM）。
-- **R4** THE SYSTEM SHALL 实现 `docs/08` §7.3 的内置规则集（11 个规则族）。
+- **R4** THE SYSTEM SHALL 实现 `docs/12` §7.3 的内置规则集（11 个规则族）。
 - **R5** `SecurityAction` SHALL 实现 `Ord`：`Allow < Flag < Warn < RequireReview < Block`。
 - **R6** 多规则命中 SHALL 取最严 action，但保留全部 `hits` 用于解释（G-Sec5）。
 - **R7** THE SYSTEM SHALL 支持 `Policy.suppressions`：抑制指定 `rule_id`，15 秒内全网生效，**无需发版**。
@@ -33,7 +33,7 @@
 
 ## 4. 需求 · 提取器
 
-- **R10** `SecurityExtractor` SHALL 提取 `docs/08` §5.1 的请求内容（system / user / tool 定义 / tool 结果 / 附件元数据）。
+- **R10** `SecurityExtractor` SHALL 提取 `docs/12` §5.1 的请求内容（system / user / tool 定义 / tool 结果 / 附件元数据）。
 - **R11** IF 结构化提取失败 THEN THE SYSTEM SHALL 降级为 `RawFallback`（在原始 body 文本上跑通用规则），**绝不拒绝请求**（宪法 C17）。
 - **R12** WHILE 处于 `RawFallback` THE SYSTEM SHALL 跳过基于角色的规则（无法确定内容来源）。
 - **R13** `tool_result` SHALL 被识别为独立 target 并应用更严格的规则集（它承载不可信的外部内容）。
@@ -87,11 +87,11 @@ impl CompiledRuleSet {
 }
 ```
 
-`SecurityVerdict` 定义见 `docs/08` §8.1（含 `degraded: Option<DegradeReason>`）。
+`SecurityVerdict` 定义见 `docs/12` §8.1（含 `degraded: Option<DegradeReason>`）。
 
 ## 8. 实现要点
 
-- **R15 的 50 ms 预算是紧的**。`docs/08` §6.1 给了各匹配器的耗时估算，实现后必须 bench 验证。超预算的规则要么优化要么下沉到 PostGuard。
+- **R15 的 50 ms 预算是紧的**。`docs/12` §6.1 给了各匹配器的耗时估算，实现后必须 bench 验证。超预算的规则要么优化要么下沉到 PostGuard。
 - 超时的实现：**不要**用 `tokio::time::timeout` 包裹（规则求值是同步 CPU 工作，超时无法中断它）。做法是在规则循环中周期检查 `Instant::elapsed()`，超时则提前返回并标记 `degraded`。
 - **R11 的降级必须真的能跑**：`RawFallback` 下仍要能匹配 `credential-leak`（正则在原始 JSON 文本上一样有效）。写测试验证降级路径的检出率。
 - `RegexSet` 用 `regex` crate —— 它保证线性时间，无灾难性回溯。这是选它而非 PCRE 的关键理由，要写进注释。
@@ -103,7 +103,7 @@ impl CompiledRuleSet {
 - [ ] T1 `security/rule.rs`：`Rule` / `RuleTarget` / `Matcher` / `SecurityAction`（含 `Ord`）
 - [ ] T2 `security/compile.rs`：`CompiledRuleSet::compile` + 上限 + 单规则失败跳过
 - [ ] T3 `security/matcher/`：keywords / regex / entropy / fingerprint / shell / allowlist
-- [ ] T4 `security/rules/builtin.rs`：11 个内置规则族（`docs/08` §7.3）
+- [ ] T4 `security/rules/builtin.rs`：11 个内置规则族（`docs/12` §7.3）
 - [ ] T5 `security/extract.rs`：三协议的内容提取 + `RawFallback`
 - [ ] T6 `security/verdict.rs`：合并（取最严 + 保留 hits）+ `degraded` 标记
 - [ ] T7 `security/preflight.rs`：内联执行 + 预算内超时检查 + fail-open
@@ -122,7 +122,7 @@ cargo bench -p argus-proxy --bench preflight
 
 - [ ] 11 个内置规则族各有正例与反例测试
 - [ ] `SecurityAction` 的 `Ord` 与合并逻辑：多规则命中取最严，`hits` 全保留
-- [ ] **bench：100 KB 请求的 preflight p95 < 8 ms、p99 < 40 ms**（`docs/11` §6.1）
+- [ ] **bench：100 KB 请求的 preflight p95 < 8 ms、p99 < 40 ms**（`docs/16` §6.1）
 - [ ] 人为让规则求值超 50 ms → 放行 + `argus_preflight_timeout_total` +1 + `verdict.degraded = Timeout`
 - [ ] 注入规则 panic → 放行 + 计数 + 进程存活（宪法 C17）
 - [ ] 畸形 JSON body → `RawFallback` 且 `credential-leak` 仍能检出（R11/R12）

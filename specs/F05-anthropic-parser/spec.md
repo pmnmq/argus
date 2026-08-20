@@ -6,7 +6,7 @@
 | 里程碑 | M0 |
 | 依赖 | F03, F04 |
 | 主 crate | `argus-protocol` |
-| 设计依据 | `docs/04-protocols.md` §5.3；`docs/06-observation-model.md` §5.3 |
+| 设计依据 | `docs/09-observers.md` §5.3；`docs/11-observation-model.md` §5.3 |
 | 宪法条款 | C2, C7, C21, C24, C26 |
 
 ## 1. 目标
@@ -15,7 +15,7 @@
 
 ## 2. 范围
 
-**In scope**：`ProtocolParser` trait、`AnthropicMessagesParser`、`message_start` / `content_block_start(text)` / `content_block_delta(text_delta)` / `content_block_stop` / `message_delta` / `message_stop` / `ping` / `error` / 未知 event。
+**In scope**：`ProtocolObserver` trait、`AnthropicMessagesParser`、`message_start` / `content_block_start(text)` / `content_block_delta(text_delta)` / `content_block_stop` / `message_delta` / `message_stop` / `ping` / `error` / 未知 event。
 
 **Out of scope**：`tool_use` / `input_json_delta` / `thinking` / `signature_delta` / `citations_delta`（→ F09），OpenAI 协议（→ F08）。
 
@@ -23,8 +23,8 @@
 
 ## 3. 需求
 
-- **R1** THE SYSTEM SHALL 提供 `trait ProtocolParser`，同步、无 `async`、无 `Box<dyn>` 热路径分发。
-- **R2** WHEN 收到 `message_start` THE SYSTEM SHALL 产出 `ResponseStart` **与** 一个 `Usage`（input_tokens 等在此处给出，`docs/04` 坑 A5）。
+- **R1** THE SYSTEM SHALL 提供 `trait ProtocolObserver`，同步、无 `async`、无 `Box<dyn>` 热路径分发。
+- **R2** WHEN 收到 `message_start` THE SYSTEM SHALL 产出 `ResponseStart` **与** 一个 `Usage`（input_tokens 等在此处给出，`docs/09` 坑 A5）。
 - **R3** WHEN 收到 `content_block_start` 且 `type == "text"` THE SYSTEM SHALL 产出 `BlockStart { (0,i,0), Text }`。
 - **R4** WHEN 收到 `content_block_delta` 且 `delta.type == "text_delta"` THE SYSTEM SHALL 产出 `BlockDelta { Text }`。
 - **R5** WHEN 收到 `content_block_stop` THE SYSTEM SHALL 产出 `BlockStop`。
@@ -45,7 +45,7 @@
 
 ```rust
 // argus-protocol/src/parser/mod.rs
-pub trait ProtocolParser {
+pub trait ProtocolObserver {
     /// 同步、不返回 Err —— 解析失败以 ParseFailure 事件表达（宪法 C2/C7）
     fn on_frame(&mut self, frame: FrameRef<'_>, out: &mut dyn EventSink);
     /// 流结束：关闭仍打开的 block（若协议需要）
@@ -66,7 +66,7 @@ impl AnyParser {
 }
 ```
 
-映射规则表见 `docs/06` §5.3，**逐行实现，不得增删**。
+映射规则表见 `docs/11` §5.3，**逐行实现，不得增删**。
 
 ## 5. 实现要点
 
@@ -81,11 +81,11 @@ impl AnyParser {
   两阶段解析（先取 `type`，再按类型解析）比一个大 enum 更省，且未知 type 天然走 R10。
 - `event:` 行与 `data.type` 不一致时以后者为准（R14），但记一条 anomaly。
 - `seq` 由 parser 维护并单调递增；`at_micros` 由调用方（Observer）注入，parser 不碰时钟（保持纯函数、可测）。
-- **未知 event 的 `raw` 必须保留**——它是前向兼容诊断的唯一依据（`docs/06` §8.1）。
+- **未知 event 的 `raw` 必须保留**——它是前向兼容诊断的唯一依据（`docs/11` §8.1）。
 
 ## 6. 任务
 
-- [ ] T1 `parser/mod.rs`：`ProtocolParser` / `EventSink` / `AnyParser` 枚举分发
+- [ ] T1 `parser/mod.rs`：`ProtocolObserver` / `EventSink` / `AnyParser` 枚举分发
 - [ ] T2 `parser/anthropic.rs`：帧类型分发（两阶段解析）
 - [ ] T3 `message_start` → `ResponseStart` + `Usage`
 - [ ] T4 `content_block_start/delta/stop`（仅 text 路径 + 未知 type 兜底）

@@ -6,7 +6,7 @@
 | 里程碑 | M1 |
 | 依赖 | F11 |
 | 主 crate | `argus-storage` |
-| 设计依据 | `docs/10-storage.md` §4–7,§10 |
+| 设计依据 | `docs/15-storage.md` §4–7,§10 |
 | 宪法条款 | C5, C6, C9, C10, C15, C19, C30 |
 
 ## 1. 目标
@@ -21,16 +21,16 @@
 
 ## 3. 需求
 
-- **R1** THE SYSTEM SHALL 建立 `docs/10` §5 的全部表与索引。
+- **R1** THE SYSTEM SHALL 建立 `docs/15` §5 的全部表与索引。
 - **R2** `argus-proxy` SHALL NOT 依赖 `sqlx` 或 `argus-storage`（宪法 C6，CI 强制）。
 - **R3** `PgSink` SHALL 实现 `argus_protocol::InteractionSink`，`try_submit` **非阻塞**（宪法 C5）。
-- **R4** WHEN 提交队列已满 THE SYSTEM SHALL 按 `on_full = degrade` 剥离 payload 只保留 `requests` 行（宪法 C10、`docs/10` §7.3）。
+- **R4** WHEN 提交队列已满 THE SYSTEM SHALL 按 `on_full = degrade` 剥离 payload 只保留 `requests` 行（宪法 C10、`docs/15` §7.3）。
 - **R5** IF degrade 后队列**仍**满 THEN THE SYSTEM SHALL 按 `drop_oldest` 丢弃并计数。
 - **R6** THE SYSTEM SHALL 按 `batch_size = 256` 或 `batch_delay = 200ms` 触发批量写。
 - **R7** THE SYSTEM SHALL 用 `UNNEST` 单条 SQL 写入整批。
 - **R8** 全部插入 SHALL 使用 `ON CONFLICT DO NOTHING`（为 F18 的回放幂等做准备）。
-- **R9** 一次 interaction SHALL 产生 ≤ 3 类行：1 行 `requests` + 1 行 `request_payloads` + N 行 `tool_calls`（`docs/10` G-St2）。
-- **R10** THE SYSTEM SHALL 在 AuditSink 的连接池上（**且仅在该池上**）设置 `SET synchronous_commit = off`（`docs/13` §6.1）。
+- **R9** 一次 interaction SHALL 产生 ≤ 3 类行：1 行 `requests` + 1 行 `request_payloads` + N 行 `tool_calls`（`docs/15` G-St2）。
+- **R10** THE SYSTEM SHALL 在 AuditSink 的连接池上（**且仅在该池上**）设置 `SET synchronous_commit = off`（`docs/18` §6.1）。
 - **R11** THE SYSTEM SHALL 落库 `integrity`、`outcome`、`dropped_bytes`、`anomaly_count`、`unknown_event_count`（宪法 C13）。
 - **R12** THE SYSTEM SHALL 落库 `usage_source ∈ {reported, estimated, missing}`，估算值不混入真实字段（宪法 C14）。
 - **R13** THE SYSTEM SHALL 用 `micro_usd` 整数计算成本，支持按 `effective_from` 的历史价格。
@@ -58,7 +58,7 @@ impl argus_protocol::InteractionSink for PgSink {
 enum SinkItem { Full(Box<ObservedInteraction>), Degraded(Box<RequestRow>) }
 
 // argus-storage/src/sink/batcher.rs
-pub struct Batcher { /* 见 docs/10 §7.1 */ }
+pub struct Batcher { /* 见 docs/15 §7.1 */ }
 
 // argus-storage/src/sink/writer.rs
 pub trait BatchWriter: Send + Sync {
@@ -69,7 +69,7 @@ pub struct PgWriter { pool: PgPool }
 ```
 
 ```sql
--- migrations/0001_init.sql … 见 docs/10 §5 的完整 DDL
+-- migrations/0001_init.sql … 见 docs/15 §5 的完整 DDL
 -- migrations/README.md 记录两阶段规则（C30）
 ```
 
@@ -79,7 +79,7 @@ pub struct PgWriter { pool: PgPool }
 - `BatchWriter` trait 是为 F18 预留的：F12 只有 `PgWriter`，F18 加 `SpoolWriter` 与状态机。**现在就抽出来，否则 F18 要改 Batcher。**
 - degrade 的实现：从 `ObservedInteraction` 提取 `RequestRow`（几百字节）丢弃 payload，再 `try_send`。若还满则丢弃并计 `argus_sink_submitted_total{result="dropped"}`。
 - `UNNEST` 的绑定用 sqlx 的数组绑定；每个字段一个 `Vec<T>`。字段多（`requests` 表 40+ 列），用宏或代码生成减少手写错误。
-- 成本计算在 Batcher 内做（不在主链路，不在 Observer）：查 `provider_models.pricing` 的内存快照。
+- **不做成本计算**（v2）：模型目录与价格表都已删除。`cost_micro_usd` 只在上游自己返回计费信息时填，否则 NULL，由下游用自己的价格表算（`docs/15` §10）。
 - `ci/check-migration-compat.sh`：用上一个 release 的二进制对新 schema 跑冒烟（宪法 C30）。首个版本无上一版，脚本需优雅跳过。
 
 ## 6. 任务

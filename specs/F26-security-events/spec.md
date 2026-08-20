@@ -6,7 +6,7 @@
 | 里程碑 | M3 |
 | 依赖 | F24 |
 | 主 crate | `argus-storage` + `argus-server` |
-| 设计依据 | `docs/08-security.md` §8.4,§9；`docs/03-control-plane.md` §5.3,§6.2 |
+| 设计依据 | `docs/12-security.md` §8.4,§9；`docs/07-control-plane.md` §5.3,§6.2 |
 | 宪法条款 | C15, C27, C29 |
 
 ## 1. 目标
@@ -45,7 +45,7 @@
 
 ## 6. 需求 · 审计查询
 
-- **R16** THE SYSTEM SHALL 提供 `docs/03` §5.3 的查询端点与过滤条件。
+- **R16** THE SYSTEM SHALL 提供 `docs/07` §5.3 的查询端点与过滤条件。
 - **R17** 分页 SHALL 用游标（编码 `(started_at, request_id)`），**不用 OFFSET**。
 - **R18** 默认响应 SHALL 只含摘要，不含 body。
 - **R19** `/raw` 子资源 SHALL 要求 `audit:read_content` scope。
@@ -53,12 +53,12 @@
 - **R21** `/raw` 响应 SHALL 按 workspace 的脱敏策略处理。
 - **R22** Anthropic `thinking` 的 `signature` SHALL 在 `/raw` 响应中默认脱敏（它是密文，无分析价值）。
 - **R23** THE SYSTEM SHALL 提供 `GET /security/events` 与 `PATCH /security/events/{id}`（处置）。
-- **R24** THE SYSTEM SHALL 提供 `GET /stats/potential_double_billing`（列出 S1 重试，供财务核对，`docs/07` §7.3）。
+- **R24** THE SYSTEM SHALL 提供 `GET /stats/potential_double_billing`（列出 S1 重试，供财务核对，`docs/08` §7.3）。
 
 ## 7. 需求 · 脱敏与 fail-close
 
 - **R25** WHERE `redaction.mode = "on_write"`（默认）THE SYSTEM SHALL 在落库前用 `RuleHit.span` 做字节级替换，保留长度信息。
-- **R26** 脱敏 SHALL 不可逆；文档必须明示误报会永久损坏数据（`docs/10` OQ-5）。
+- **R26** 脱敏 SHALL 不可逆；文档必须明示误报会永久损坏数据（`docs/15` OQ-5）。
 - **R27** WHERE `storage.audit.require_durable = true` THE SYSTEM SHALL 在审计写入失败时拒绝请求。
 - **R28** `require_durable` SHALL 默认 `false`，且启用时配置校验 SHALL 发出警告说明它使 PG 成为 Data Plane 硬依赖（违背宪法 C19 的设计意图）。
 
@@ -140,4 +140,4 @@ cargo test -p argus-server admin::audit
 | `RequireReview` 审批流 | Phase 3 |
 | taint 的 Redis 共享 | Phase 2 |
 | LLM Detector | Phase 2 |
-| GIN 内容检索 | Phase 3（`docs/10` OQ-3） |
+| GIN 内容检索 | Phase 3（`docs/15` OQ-3） |

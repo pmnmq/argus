@@ -6,7 +6,7 @@
 | 里程碑 | M2 |
 | 依赖 | F12 |
 | 主 crate | `argus-storage` |
-| 设计依据 | `docs/10-storage.md` §7.3,§8 |
+| 设计依据 | `docs/15-storage.md` §7.3,§8 |
 | 宪法条款 | C10, C15, C19 |
 
 ## 1. 目标
@@ -106,7 +106,7 @@ cargo test -p argus-storage spool         # testcontainers，含 PG 启停
 - [ ] spool 目录只读 → 启动时警告、spool 禁用、**服务正常**（R10）
 - [ ] 两个实例指向同一 spool 目录 → 第二个拒绝启动，错误信息清晰（R11）
 - [ ] 停机时 spool 被 flush，重启后可继续回放
-- [ ] 2.8 小时容量估算验证：以 100 req/s 灌入，确认 1 GiB 能容纳约 2.5–3 小时（`docs/10` §8.4）
+- [ ] 2.8 小时容量估算验证：以 100 req/s 灌入，确认 1 GiB 能容纳约 2.5–3 小时（`docs/15` §8.4）
 
 ## 8. 交给后续
 

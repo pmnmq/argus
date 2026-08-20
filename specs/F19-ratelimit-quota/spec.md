@@ -6,7 +6,7 @@
 | 里程碑 | M2 |
 | 依赖 | F13 |
 | 主 crate | `argus-proxy` |
-| 设计依据 | `docs/09-auth.md` §8；`docs/12-reliability.md` §6.3 |
+| 设计依据 | `docs/14-auth-and-credentials.md` §8；`docs/17-reliability.md` §6.3 |
 | 宪法条款 | C14, C16, C17 |
 
 ## 1. 目标
@@ -92,7 +92,7 @@ pub struct RedisQuotaBackend;   // 可选，失败时上层降级
 - [ ] T7 接入主链路 P4 阶段
 - [ ] T8 `record` 接入 AuditSink（成本计算已在 F12）
 - [ ] T9 指标（R12/R16）
-- [ ] T10 **撰写用户文档中的一致性声明**（`docs/09` §8.4 的原文）
+- [ ] T10 **撰写用户文档中的一致性声明**（`docs/14` §8.4 的原文）
 - [ ] T11 测试：§9
 
 ## 9. 验收
@@ -105,7 +105,7 @@ cargo test -p argus-proxy --features redis quota_redis
 - [ ] GCRA：配置 10 req/s，第 11 个请求 429 且 `Retry-After` 精确
 - [ ] bench：`check()` p50 < 100 ns（R3）
 - [ ] token 配额耗尽 → 429 + `x-argus-quota-reset`
-- [ ] **超额量化**：并发 50 个请求同时通过检查，测量实际超额量并记录到测试输出（验证 `docs/09` OQ-2）
+- [ ] **超额量化**：并发 50 个请求同时通过检查，测量实际超额量并记录到测试输出（验证 `docs/14` OQ-2）
 - [ ] `soft_threshold` 触发后，大请求被拒、小请求通过
 - [ ] PG 停止 → 配额检查基于陈旧数据继续工作，**不拒绝服务**（R11）
 - [ ] 同步 task 被人为阻塞 → `argus_quota_sync_lag_seconds` 上升

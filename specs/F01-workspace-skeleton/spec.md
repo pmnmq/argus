@@ -6,9 +6,13 @@
 | 里程碑 | M0 |
 | 依赖 | — |
 | 主 crate | （全部） |
-| 设计依据 | `docs/14-rust-project-structure.md` §5,§7,§9；`docs/15-testing-strategy.md` §9 |
+| 设计依据 | `docs/19-rust-project-structure.md` §5,§7,§9；`docs/20-testing-strategy.md` §9 |
 | 宪法条款 | C4, C6, C7, C8, C9, C27, C32 |
 
+
+> ⚠️ **v2 补充**：R01 会在本 spec 建立的护栏上再加两条 ——
+> `ProviderType` 穷举 match 检查、`axum::extract::Path` 禁用。
+> 本 spec 本身无需返工。
 ## 1. 目标
 
 建立 5-crate workspace，并把宪法中的**编译期/CI 可强制条款**变成真正会失败的检查——在写任何业务代码之前。
@@ -73,7 +77,7 @@ FAIL [C6] argus-proxy depends on sqlx — see specs/constitution.md#c6
 
 ## 5. 实现要点
 
-- workspace 依赖清单直接采用 `docs/14-rust-project-structure.md` §7.1，**不要自行调整版本**。
+- workspace 依赖清单直接采用 `docs/19-rust-project-structure.md` §7.1，**不要自行调整版本**。
 - `[profile.release]` 用 `codegen-units = 4`（不是 1），发行版走单独的 `release-dist`。依据同上 §7.4。
 - 五个 crate 此时都是空的（只有 `lib.rs` / `main.rs` 骨架），但**依赖关系要先声明好**，这样 R2/R3 从第一天就在被检查。
 - `check-invariants.sh` 用 `set -euo pipefail`，每条检查独立、失败即退出并给出可操作提示。
@@ -81,7 +85,7 @@ FAIL [C6] argus-proxy depends on sqlx — see specs/constitution.md#c6
 ## 6. 任务
 
 - [x] T1 `cargo new` 改造为 workspace，创建 5 个 crate → `Cargo.toml`, `crates/*/`
-- [x] T2 填入 `[workspace.dependencies]`（照抄 `docs/14` §7.1）→ `Cargo.toml`
+- [x] T2 填入 `[workspace.dependencies]`（照抄 `docs/19` §7.1）→ `Cargo.toml`
 - [x] T3 配置 `[profile.release]`（`panic = "unwind"` + 注释说明不可改）→ `Cargo.toml`
 - [x] T4 各 crate 的 lint 头部与 `Cargo.toml` 依赖声明 → `crates/*/src/lib.rs`
 - [x] T5 `rust-toolchain.toml` + `clippy.toml`（disallowed-methods）+ `.cargo/config.toml`
@@ -123,4 +127,4 @@ cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo build --
 | `cargo-machete` / 编译时间门禁 | F28 |
 | 迁移兼容性检查（`check-migration-compat.sh`） | F12 |
 | golden test 的 `coverage_matrix` 检查 | F10 |
-| 把 rustls 的加密后端从 aws-lc-rs 换回 ring | F28（R8），背景见 `docs/14` §7.3.1 |
+| 把 rustls 的加密后端从 aws-lc-rs 换回 ring | F28（R8），背景见 `docs/19` §7.3.1 |

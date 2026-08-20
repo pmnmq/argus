@@ -6,7 +6,7 @@
 | 里程碑 | M3 |
 | 依赖 | F12 |
 | 主 crate | `argus-server` + `argus-storage` |
-| 设计依据 | `docs/03-control-plane.md` §4–8 |
+| 设计依据 | `docs/07-control-plane.md` §4–8 |
 | 宪法条款 | C19, C20, C27, C31 |
 
 ## 1. 目标
@@ -30,7 +30,7 @@
 
 - **R5** Data Plane 的 API Key SHALL NOT 可用于 Control Plane（前缀与校验路径完全分离）。
 - **R6** THE SYSTEM SHALL 支持 Admin Session（登录）与 Admin Token（`at-argus-...`，用于 CI/IaC）。
-- **R7** THE SYSTEM SHALL 实现 `docs/03` §6.2 的 scope 集合。
+- **R7** THE SYSTEM SHALL 实现 `docs/07` §6.2 的 scope 集合。
 - **R8** `audit:read_content` SHALL 是独立的高敏 scope，**不包含在任何默认角色中**。
 - **R9** WHEN 使用 `audit:read_content` THE SYSTEM SHALL 记录一条 `audit_events`（访问内容本身要被审计）。
 - **R10** 用户密码 SHALL 用 argon2id 哈希（与 Data Plane 的 API Key 不同——密码是低熵的）。
@@ -47,16 +47,16 @@
 
 ## 6. 需求 · CRUD 与校验
 
-- **R18** THE SYSTEM SHALL 提供 `docs/03` §5.1 的全部资源端点。
+- **R18** THE SYSTEM SHALL 提供 `docs/07` §5.1 的全部资源端点。
 - **R19** 写操作 SHALL 支持 `?dry_run=true`（完整校验，不落库）。
 - **R20** 写操作 SHALL 要求 `If-Match: <etag>`（乐观并发）。
 - **R21** 写操作 SHALL 产生 `audit_events`（actor / 动作 / 资源 / diff）。
-- **R22** THE SYSTEM SHALL 做**语义校验**，尤其是：binding 的 provider 协议必须与 logical model 的 `protocol` 匹配（宪法 C3 的配置期防线）。
+- **R22** THE SYSTEM SHALL 做**语义校验**，尤其是：`credential.mode=injected` 时 `header`/`format` 必填；`allow_raw_proxy` + `injected` 必须配非空 target allowlist（`docs/13` §9）。**不做**「model 是否被该 provider 支持」这类校验——模型目录不存在。
 - **R23** `capability_overrides` SHALL 只允许收窄；放宽的配置必须被拒绝。
 - **R24** 校验失败的错误信息 SHALL 可操作（指出问题 + 给出正确做法）。
 - **R25** THE SYSTEM SHALL 提供 `argus config apply/export`；`credential_ref: env:XXX` 让配置可进 Git。
 - **R26** `config export` SHALL NOT 输出 credential 明文。
-- **R27** THE SYSTEM SHALL 提供 `/admin/diagnostics`（`docs/03` §5.4 的字段）。
+- **R27** THE SYSTEM SHALL 提供 `/admin/diagnostics`（`docs/07` §5.4 的字段）。
 
 ## 7. 接口契约
 
@@ -80,7 +80,7 @@ pub trait Repo<T> {
 }
 
 // argus-server/src/admin/validate.rs
-pub fn validate_binding(m: &LogicalModel, b: &ModelBinding, p: &ProviderConfig)
+pub fn validate_profile(p: &ProviderProfile, tp: &TargetPolicy)
     -> Result<(), Vec<ValidationProblem>>;    // R22/R23
 ```
 
@@ -93,11 +93,11 @@ argus keygen master
 
 ## 8. 实现要点
 
-- **R22 是 Argus 的核心价值之一**：在配置时就阻止不可能工作的组合，而不是等运行时报错。错误信息照 `docs/03` §5.2 的样式，指出正确的 endpoint。
+- **R22 是 Argus 的核心价值之一**：在配置时就阻止不可能工作的组合，而不是等运行时报错。错误信息照 `docs/07` §5.2 的样式，指出正确的 endpoint。
 - `Etag` 用行的 `xmin` 或一个显式 `version` 列。前者更简单但与 PG 耦合；推荐显式 `version BIGINT`。
 - **R12 的贯彻要靠类型**：`ResolvedCredential` 不实现 `Serialize`；`Debug`/`Display` 手写为 `<redacted>`。CI 加一条 grep 检查 admin handler 中不出现 credential 的序列化。
-- `config apply` 是幂等 upsert，用 `name` 作自然键。**不做双向同步**（`docs/03` §8）。
-- `/admin/diagnostics` 的价值在排障：字段要直接对应 `docs/11` 的指标，让"看一眼就知道哪里不对"。
+- `config apply` 是幂等 upsert，用 `name` 作自然键。**不做双向同步**（`docs/07` §8）。
+- `/admin/diagnostics` 的价值在排障：字段要直接对应 `docs/16` 的指标，让"看一眼就知道哪里不对"。
 - Admin API 的 handler 里**不得**引用 `argus-proxy` 的类型（保持 role 分离时能编译）。
 
 ## 9. 任务
@@ -109,7 +109,7 @@ argus keygen master
 - [ ] T5 `admin/audit.rs`：`audit_events` 记录中间件（含 R9）
 - [ ] T6 `repo/`：各资源的 CRUD + `Etag` 乐观并发
 - [ ] T7 `admin/validate.rs`：R22/R23 + 可操作错误信息
-- [ ] T8 `admin/handlers/`：`docs/03` §5.1 的全部端点 + `dry_run`
+- [ ] T8 `admin/handlers/`：`docs/07` §5.1 的全部端点 + `dry_run`
 - [ ] T9 `admin/diagnostics.rs`
 - [ ] T10 `config apply/export`（YAML + `env:` 引用）
 - [ ] T11 独立端口 + 独立池 + `role` 分离

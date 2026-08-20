@@ -6,7 +6,7 @@
 | 里程碑 | M1 |
 | 依赖 | F07 |
 | 主 crate | `argus-protocol` |
-| 设计依据 | `docs/04-protocols.md` §5.1–5.2；`docs/06-observation-model.md` §5.1–5.2 |
+| 设计依据 | `docs/09-observers.md` §5.1–5.2；`docs/11-observation-model.md` §5.1–5.2 |
 | 宪法条款 | C2, C7, C21, C24, C26 |
 
 ## 1. 目标
@@ -15,13 +15,13 @@
 
 ## 2. 范围
 
-**In scope**：`OpenAiChatParser`、`OpenAiResponsesParser`、坐标合成规则、`docs/04` 中列出的全部 8 个 Chat 坑 + 7 个 Responses 要点。
+**In scope**：`OpenAiChatParser`、`OpenAiResponsesParser`、坐标合成规则、`docs/09` 中列出的全部 8 个 Chat 坑 + 7 个 Responses 要点。
 
 **Out of scope**：Accumulator 侧的 tool args 拼接（→ F09）、Gemini（Phase 2）。
 
 ## 3. 需求 · OpenAI Chat
 
-- **R1** THE SYSTEM SHALL 按 `docs/06` §5.1 的表合成坐标：content→`(i,0,0)`、reasoning→`(i,1,0)`、refusal→`(i,2,0)`、tool_calls[j]→`(i,16+j,0)`。
+- **R1** THE SYSTEM SHALL 按 `docs/11` §5.1 的表合成坐标：content→`(i,0,0)`、reasoning→`(i,1,0)`、refusal→`(i,2,0)`、tool_calls[j]→`(i,16+j,0)`。
 - **R2** WHEN 帧为 `data: [DONE]` THE SYSTEM SHALL 不产出事件（framer 已消化，坑 C1）。
 - **R3** WHEN `delta.tool_calls[j]` 首次出现 THE SYSTEM SHALL 产出 `BlockStart{ToolUse{id,name}}`；后续 `arguments` 产出 `BlockDelta::Json`（坑 C2）。
 - **R4** WHEN `function.name` 分片到达 THE SYSTEM SHALL **append 而非覆盖**（坑 C3）。
@@ -31,13 +31,13 @@
 - **R8** WHEN `n > 1` 产生多个 choices THE SYSTEM SHALL 为每个 choice 使用独立的 `choice` 坐标（坑 C7）。
 - **R9** WHEN 上游 EOF 但未收到 `[DONE]` THE SYSTEM SHALL 视为正常结束（坑 C8）。
 - **R10** WHEN `finish_reason` 非空 THE SYSTEM SHALL 隐式关闭该 choice 下所有 open block（Chat 无 `content_block_stop`）。
-- **R11** `finish_reason` 映射按 `docs/06` §5.1 表；未知值 → `Other + raw_reason`。
+- **R11** `finish_reason` 映射按 `docs/11` §5.1 表；未知值 → `Other + raw_reason`。
 
 ## 4. 需求 · OpenAI Responses
 
 - **R12** THE SYSTEM SHALL 以 `data` 中的 `type` 为权威，`event:` 行仅 fallback（要点 R1）。
 - **R13** THE SYSTEM SHALL 把 `output_index`→`item`、`content_index`→`part`、`choice` 恒 0（要点 R2）。
-- **R14** THE SYSTEM SHALL 按 `docs/06` §5.2 的表处理 `response.*` 全部已知事件。
+- **R14** THE SYSTEM SHALL 按 `docs/11` §5.2 的表处理 `response.*` 全部已知事件。
 - **R15** WHEN 事件名以 `response.` 开头但不在已知集合 THE SYSTEM SHALL 产出 `Unknown{event_name}`（要点 R6，宪法 C2）。
 - **R16** WHEN 收到 `response.output_item.done` THE SYSTEM SHALL 关闭该 item 下**所有** part。
 - **R17** WHEN 收到 `response.completed` THE SYSTEM SHALL 产出 `Usage` + `Finish{Stop}`，并把完整响应对象附在事件上供 F09 交叉校验（要点 R5）。
@@ -45,7 +45,7 @@
 
 ## 5. 接口契约
 
-沿用 F05 定义的 `ProtocolParser` / `EventSink` / `AnyParser`，本切片只填充两个变体：
+沿用 F05 定义的 `ProtocolObserver` / `EventSink` / `AnyParser`，本切片只填充两个变体：
 
 ```rust
 pub struct OpenAiChatParser {

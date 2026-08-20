@@ -6,7 +6,7 @@
 | 里程碑 | M3 |
 | 依赖 | F22 |
 | 主 crate | `argus-core` + `argus-server` |
-| 设计依据 | `docs/01-architecture.md` §7；`docs/03-control-plane.md` §5 |
+| 设计依据 | `docs/01-architecture.md` §7；`docs/07-control-plane.md` §5 |
 | 宪法条款 | C19, C21 |
 
 ## 1. 目标
@@ -17,7 +17,7 @@
 
 **In scope**：`ArcSwap<ConfigSnapshot>` 分发、`ConfigRefresher`、快照构建、请求内视图一致性、可选 `LISTEN/NOTIFY`、预计算（标签、累积权重、`EffectiveLimits`、header）。
 
-**Out of scope**：进程配置的热更新（进程配置需重启，`docs/13` §5.1）。
+**Out of scope**：进程配置的热更新（进程配置需重启，`docs/18` §5.1）。
 
 ## 3. 需求
 
@@ -42,7 +42,9 @@ pub struct ConfigSnapshot {
     pub version: u64,
     pub loaded_at: SystemTime,
     pub providers: HashMap<ProviderId, Arc<ProviderConfig>>,
-    pub logical_models: HashMap<CompactString, Arc<LogicalModel>>,
+    pub profiles: HashMap<CompactString, Arc<ProviderProfile>>,
+    pub observer_rules: Arc<ObserverRules>,
+    pub target_policy: Arc<TargetPolicy>,
     pub routes: HashMap<(Protocol, CompactString), Arc<RouteTable>>,
     pub policies: Arc<PolicySet>,
     pub workspaces: HashMap<WorkspaceId, Arc<WorkspaceConfig>>,
@@ -58,7 +60,8 @@ impl ConfigHandle {
 }
 
 /// RouteTable 已预计算累积权重，选路时二分查找（零分配）
-pub struct RouteTable { candidates: Vec<Arc<ModelBinding>>, cumulative_weights: Vec<u32> }
+// v2：没有候选表了。Profile 直接按名字查，观测规则是有序表
+pub struct ProfileTable { by_name: HashMap<CompactString, Arc<ProviderProfile>> }
 
 // argus-server/src/config_refresh.rs
 pub struct ConfigRefresher { handle: ConfigHandle, repo: Arc<dyn ConfigRepo>, cfg: RefreshConfig }
@@ -68,7 +71,7 @@ impl ConfigRefresher { pub async fn run(self, shutdown: CancellationToken); }
 ## 5. 实现要点
 
 - **R2 的实现方式**：在 Ingress 层 `load()` 一次并放进 `RequestCtx.snapshot: Arc<ConfigSnapshot>`。后续所有阶段用它，**不再 `load()`**。
-- **R8 的标签 interning 要注意 `docs/11` OQ-3 指出的问题**：`Box::leak` 在频繁 reload 下会累积泄漏。用有界 interner（保留已见过的标签，跨快照复用），不是每次重建。
+- **R8 的标签 interning 要注意 `docs/16` OQ-3 指出的问题**：`Box::leak` 在频繁 reload 下会累积泄漏。用有界 interner（保留已见过的标签，跨快照复用），不是每次重建。
 - 快照构建是全量重建（`docs/01` OQ-3 假设 < 1000 个 provider/model）。若将来超过 5k，改增量。构建耗时要记指标。
 - NOTIFY 用独立的长连接；断开时记录并回退。**不要**让 NOTIFY 的失败影响周期刷新。
 - `GET /config/snapshot` 的输出必须脱敏（credential 只显示 fingerprint）。

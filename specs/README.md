@@ -4,6 +4,13 @@
 
 ---
 
+
+> **关于 `R` 前缀**：`R01–R04` 是 2026-08-20 路由模型重设计引入的。
+> R01 修正 F01–F03 已落地的部分，R02–R04 是 v2 新增的能力。
+> **执行顺序：F01 → F02 → F03 → R01 → R02 → R04 → F04 → …**，
+> R03 属于 M2。给它们单独的前缀而不是给 F04–F28 重新编号，
+> 是因为重编号会打断 30 个 spec 的依赖字段与交叉引用，代价远大于收益。
+
 ## 1. 三层文档的关系
 
 ```mermaid
@@ -46,7 +53,11 @@ flowchart LR
     subgraph M0["M0 · 可行性验证（门禁）"]
         F01["F01 骨架与护栏"] --> F02["F02 核心类型"]
         F02 --> F03["F03 SSE 分帧器"]
-        F02 --> F04["F04 IR 与最小 Accumulator"]
+        F03 --> R01["R01 路由模型对齐<br/>(修正 F01-F03)"]
+        R01 --> R02["R02 Target Resolver"]
+        R02 --> R03["R03 Target Policy/SSRF"]
+        R01 --> R04["R04 Observer 选择"]
+        R01 --> F04["F04 IR 与最小 Accumulator"]
         F03 --> F05["F05 Anthropic 解析器(最小)"]
         F04 --> F05
         F05 --> F06["F06 Tee 与最小透传"]
@@ -94,6 +105,10 @@ flowchart LR
 | ID | 名称 | 里程碑 | 主 crate | 依赖 | 主要设计依据 |
 |----|------|--------|---------|------|-------------|
 | [F01](F01-workspace-skeleton/spec.md) | 骨架与架构护栏 | M0 | — | — | `14` §5,§7,§9 |
+| [R01](R01-routing-realign/spec.md) | **路由模型对齐**（修正 F01–F03） | M0 | F01–F03 | core/protocol/proxy | `02`、ADR-003/004/005/010 |
+| [R02](R02-target-resolver/spec.md) | Target Resolver（URL → ResolvedTarget） | M0 | R01 | proxy::ingress | `03` §4–7、`04` §4–5 |
+| [R03](R03-target-policy/spec.md) | Target Policy 与 SSRF 防护 | M2 | R02 | proxy::target | `13` 全篇、ADR-013 |
+| [R04](R04-observer-resolution/spec.md) | Observer 选择 | M1 | R01,R02 | proxy/protocol | `09` §4、ADR-010 |
 | [F02](F02-core-types/spec.md) | 核心类型与错误 | M0 | core | F01 | `02` §10, `04` §4 |
 | [F03](F03-sse-framer/spec.md) | SSE 分帧器 | M0 | protocol | F02 | `05` §5–6 |
 | [F04](F04-observation-ir/spec.md) | Observation IR 与最小 Accumulator | M0 | protocol | F02 | `06` §4,§7 |
@@ -128,10 +143,10 @@ flowchart LR
 
 | 门禁 | 位置 | 不通过时 |
 |------|------|---------|
-| **G-M0 架构可行性** | F07 结束 | **停止**，不得进入 M1。重新审视 `ADR-005` |
+| **G-M0 架构可行性** | F07 结束 | **停止**，不得进入 M1。重新审视 `ADR-009` |
 | G-M1 SDK 兼容 | F15 结束 | 修复后才进 M2 |
 | G-M2 混沌通过 | F21 结束 | 修复后才进 M3 |
-| G-M4 性能回填 | F28 | 实测数据必须写回 `docs/11` §6 |
+| G-M4 性能回填 | F28 | 实测数据必须写回 `docs/16` §6 |
 
 **G-M0 的判定标准**（`F07` §7）：
 - `proxy_added_ttft` p50 < 2 ms、p99 < 15 ms

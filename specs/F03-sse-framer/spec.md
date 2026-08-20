@@ -6,14 +6,17 @@
 | 里程碑 | M0 |
 | 依赖 | F02 |
 | 主 crate | `argus-protocol` |
-| 设计依据 | `docs/05-streaming.md` §5.2–5.4,§6.4；`docs/04-protocols.md` §9.2；`docs/16-mvp-roadmap.md` §6.1 |
+| 设计依据 | `docs/10-streaming.md` §5.2–5.4,§6.4；`docs/09-observers.md` §9.2；`docs/22-mvp-roadmap.md` §6.1 |
 | 宪法条款 | C7, C9, C10, C13, C21, C24 |
 
+
+> ✅ **v2 不受影响。** 分帧器是协议无关的；`GenericSse` 兜底走的是同一个
+> `SseFramer`（`docs/09` §4.1），v2 反而更依赖它。
 ## 1. 目标
 
 把任意切分的字节流切成 SSE 逻辑帧，且**对任意切分方式产出完全相同的结果**。这是整个系统正确性的地基。
 
-> `docs/16` §6.1 把这一项标为"最容易被低估的任务"。它看着简单，实际是全项目最容易出静默 bug 的地方。
+> `docs/22` §6.1 把这一项标为"最容易被低估的任务"。它看着简单，实际是全项目最容易出静默 bug 的地方。
 
 ## 2. 范围
 
@@ -23,7 +26,7 @@
 
 ## 3. 需求
 
-- **R1** THE SYSTEM SHALL 提供 `trait Framer`，使 `SseFramer` 与未来的 `EventStreamFramer` 可互换（`docs/04` §9.2）。
+- **R1** THE SYSTEM SHALL 提供 `trait Framer`，使 `SseFramer` 与未来的 `EventStreamFramer` 可互换（`docs/09` §9.2）。
 - **R2** WHEN 输入包含完整的帧分隔符 THE SYSTEM SHALL 产出对应的 `FrameRef`。
 - **R3** THE SYSTEM SHALL 识别 `\n\n`、`\r\n\r\n`、`\r\r` 三种分隔符，**一次扫描取最早出现者**。
 - **R4** WHEN 内部缓冲为空且本次输入自带完整边界 THE SYSTEM SHALL 走 fast path，用 `Bytes::split_to` 产出帧而不发生 memcpy（宪法 C21/C22）。
@@ -35,7 +38,7 @@
 - **R10** WHEN 帧内容为 `data: [DONE]` THE SYSTEM SHALL 产出 `FrameRef::Done` 而非尝试解析 JSON。
 - **R11** THE SYSTEM SHALL 忽略以 `:` 开头的注释行（SSE 心跳），但计数。
 - **R12** THE SYSTEM SHALL 支持一帧内多个 `data:` 行（SSE 规范允许），按规范用 `\n` 连接。
-- **R13** THE SYSTEM SHALL NOT 对帧内容做 UTF-8 校验（`docs/05` §5.4）。
+- **R13** THE SYSTEM SHALL NOT 对帧内容做 UTF-8 校验（`docs/10` §5.4）。
 - **R14** THE SYSTEM SHALL 对任意字节输入不 panic（宪法 C7）。
 - **R15** 对同一输入的任意切分方式（含逐字节），THE SYSTEM SHALL 产出完全相同的帧序列（宪法 C24）。
 
@@ -80,10 +83,10 @@ pub struct FramerConfig { pub max_frame_bytes: usize }   // 默认 1 MiB
 
 ## 5. 实现要点
 
-- **R3 是已知易错点**：`docs/05` §5.3 里给的示意实现有 bug（三次独立 `find` 会返回"最早的 `\n\n`"而不是"最早的任意分隔符"）。必须一次扫描同时匹配三种，取 `min`。用 `memchr::memmem::Finder` 预构建三个 finder，或直接手写一次 `memchr2(b'\n', b'\r')` 后判断后续字节。
+- **R3 是已知易错点**：`docs/10` §5.3 里给的示意实现有 bug（三次独立 `find` 会返回"最早的 `\n\n`"而不是"最早的任意分隔符"）。必须一次扫描同时匹配三种，取 `min`。用 `memchr::memmem::Finder` 预构建三个 finder，或直接手写一次 `memchr2(b'\n', b'\r')` 后判断后续字节。
 - fast path 的判据是 `self.buf.is_empty()`，不是"chunk 里有分隔符"——后者仍需处理残留。
 - `Gap` 通过 `FrameSink::emit_gap` 单独发出，**不混进 `FrameRef`**——它不是 provider 产生的帧。
-- `finish()` 必须处理"上游 EOF 但最后一帧没有尾随空行"的情况（真实 provider 会这样，`docs/04` 坑 C8）。
+- `finish()` 必须处理"上游 EOF 但最后一帧没有尾随空行"的情况（真实 provider 会这样，`docs/09` 坑 C8）。
 - `FrameData::Joined` 只在多行 `data:` 时出现，实践中 AI provider 不用，但必须容忍。
 
 ## 6. 任务
@@ -106,7 +109,7 @@ cargo test -p argus-protocol framer
 cargo test -p argus-protocol --test split
 ```
 
-**必测清单**（`docs/16` §6.1 的验收细节）：
+**必测清单**（`docs/22` §6.1 的验收细节）：
 
 - [x] `\n\n` / `\r\n\r\n` / `\r\r`，以及**混合出现时取最早**（这是 §5 指出的 bug 点，必须有专门用例）
 - [x] fast path 不发生 memcpy —— 断言产出的 `Bytes` 与输入共享底层（`Bytes::as_ptr` 落在输入范围内）

@@ -6,16 +6,23 @@
 | 里程碑 | M2 |
 | 依赖 | F14 |
 | 主 crate | `argus-proxy` |
-| 设计依据 | `docs/07-provider-routing.md` §5,§7,§9；`docs/02-data-plane.md` §7 |
+| 设计依据 | `docs/08-provider-profiles.md` §5,§7,§9；`docs/06-data-plane.md` §7 |
 | 宪法条款 | C18 |
 
+
+> ⚠️ **v2 变更**：跨 Provider fallback **整套删除**（`docs/02-routing-model.md` §7）。
+> 客户端已在 URL 里指名 provider，悄悄发到别处会让计费与行为都不可预测。
+> 剩下的是**同一个 Profile 内**的重试。`max_attempts` 从 3 降到 2——
+> 三次都打同一个地方，收益递减而重复计费风险线性增长。
 ## 1. 目标
 
-把 F14 的单候选变成有序候选列表，并实现 S0–S3 状态机驱动的 retry/fallback。**S3 后永不重试**是不可配置的硬约束。
+实现 S0–S3 状态机驱动的重试。**重试的是同一个 Provider Profile**——v2 没有跨 Profile fallback（`docs/02` §7）。**S3 后永不重试**是不可配置的硬约束。
 
 ## 2. 范围
 
-**In scope**：有序候选列表、`WeightedRandom`/`RoundRobin`、会话粘性、S0–S3 retry 决策表、三重预算、`AttemptRecord` 链、fallback 响应头。
+**In scope**：S0–S3 retry 决策表、退避与抖动、三重预算（次数/时间/全局令牌桶）、`AttemptRecord` 链、重试可观测性响应头。
+
+**已删除（v2）**：有序候选列表、`WeightedRandom`/`RoundRobin`、会话粘性、跨 Profile fallback。理由见 `docs/02-routing-model.md` §7 与 ADR-003。
 
 **Out of scope**：熔断与 throttle（→ F17，本切片预留接口）、`LeastLatency`（Phase 2）、成本感知路由（Phase 3）。
 
@@ -25,16 +32,16 @@
 - **R2** THE SYSTEM SHALL 按 priority 分组，组内按策略选择。
 - **R3** THE SYSTEM SHALL 支持 `WeightedRandom`（默认）与 `RoundRobin`。
 - **R4** `WeightedRandom` SHALL 用预计算的累积权重数组 + 二分查找，**每请求零分配**。
-- **R5** WHERE `routing.sticky = "conversation"` THE SYSTEM SHALL 用 rendezvous hashing 按 `conversation_id` 选择 binding，以保护 provider 侧 prompt cache。
-- **R6** 粘性 SHALL NOT 凌驾于可用性：目标不健康时正常 fallback。
+- **R5** ~~会话粘性~~ **已删除**（没有候选集，粘性无意义）。原文：WHERE `routing.sticky = "conversation"` THE SYSTEM SHALL 用 rendezvous hashing 按 `conversation_id` 选择 binding，以保护 provider 侧 prompt cache。
+- **R6** ~~粘性不凌驾可用性~~ **已删除**，随 R5。
 - **R7** 候选列表 SHALL 已应用 Key 白名单、协议匹配、能力过滤（F14 已有）。
 
-## 4. 需求 · Retry 决策（`docs/07` §7.1 表）
+## 4. 需求 · Retry 决策（`docs/08` §7.1 表）
 
 - **R8** WHEN S0（connect/DNS/TLS 失败）THE SYSTEM SHALL 立即尝试下一候选。
 - **R9** WHEN S1（已发出请求，headers 超时或连接断开）THE SYSTEM SHALL 按 `retry.on_no_response`（默认 true）决定，且**必须记录 `retry_after_send = true`** 供计费核查。
-- **R10** WHEN S2 且 status ∈ {408, 429, 500, 502, 503, 504} THE SYSTEM SHALL fallback 到下一候选。
-- **R11** WHEN S2 且 status ∈ {400, 401, 403, 404, 413, 422} THE SYSTEM SHALL **不 fallback**，原样透传 provider 错误。
+- **R10** WHEN S2 且 status ∈ {408, 429, 500, 502, 503, 504} THE SYSTEM SHALL **重试同一个 Profile**（带退避），次数受 `max_attempts` 约束（默认 2，含首次）。
+- **R11** WHEN S2 且 status ∈ {400, 401, 403, 404, 413, 422} THE SYSTEM SHALL **不重试**，原样透传 provider 错误。
 - **R12** WHEN status = 401/403 THE SYSTEM SHALL 额外记 `argus_provider_auth_failure_total` 并触发告警级日志。
 - **R13** WHEN 已进入 S3 THE SYSTEM SHALL **永不** retry。此行为不可配置（宪法 C18）。
 - **R14** THE SYSTEM SHALL 遵守三重预算：`max_attempts`、`max_attempts_per_provider`、时间 `budget`。
@@ -78,7 +85,7 @@ pub enum RetryDecision { NextCandidate, SameCandidate, Stop }
 
 ## 7. 实现要点
 
-- **把决策表做成纯函数 `retry_decision`**（不是散在循环里的 if），这样 `docs/07` §7.1 的表可以逐格写测试。
+- **把决策表做成纯函数 `retry_decision`**（不是散在循环里的 if），这样 `docs/08` §7.1 的表可以逐格写测试。
 - **R13 的实现要在类型层面兜底**：`retry_decision` 对 `stage == S3Committed` 无条件返回 `Stop`，并加 `debug_assert!`。同时 `ProxyError::is_retryable()`（F02）已有同样保证，两处都要有。
 - S2 fallback 的关键在 F14 已做的 R15：`send()` 返回时 body 未被 poll，`drop(resp)` 即可放弃。本切片只是在这个检查点上加决策。
 - 全局重试令牌桶用 `governor`，容量按"总请求速率 × 10%"，与限流器分开实例。
@@ -104,7 +111,7 @@ pub enum RetryDecision { NextCandidate, SameCandidate, Stop }
 cargo test -p argus-proxy retry router
 ```
 
-- [ ] **决策表逐格测试**：`docs/07` §7.1 的每一行 × 每个 status 类别
+- [ ] **决策表逐格测试**：`docs/08` §7.1 的每一行 × 每个 status 类别
 - [ ] **S3 铁律**：任意配置下，`stage = S3Committed` 的 `retry_decision` 恒为 `Stop`（proptest 遍历配置空间）
 - [ ] 429 → fallback，客户端收到 200 且 `x-argus-fallback-from` 存在
 - [ ] 401 → **不** fallback，原样透传 provider 的 401 + `argus_provider_auth_failure_total` 递增

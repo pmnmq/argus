@@ -6,7 +6,7 @@
 | 里程碑 | M2（**门禁 G-M2**） |
 | 依赖 | F17, F18 |
 | 主 crate | `tests/` |
-| 设计依据 | `docs/15-testing-strategy.md` §10 |
+| 设计依据 | `docs/20-testing-strategy.md` §10 |
 | 宪法条款 | C5, C7, C10, C11, C13, C17, C18, C19 |
 
 ## 1. 目标
@@ -15,7 +15,7 @@
 
 ## 2. 范围
 
-**In scope**：testcontainers PG、`docs/15` §10 的全部场景、混沌注入、宪法条款的端到端断言。
+**In scope**：testcontainers PG、`docs/20` §10 的全部场景、混沌注入、宪法条款的端到端断言。
 
 **Out of scope**：性能压测（F07 已建立，F28 做回归门禁）、7 天长稳（→ F28）。
 
@@ -23,7 +23,7 @@
 
 - **R1** THE SYSTEM SHALL 用 testcontainers 起真实 PostgreSQL，**不使用 mock 数据库**（SQL 方言差异是真实 bug 来源）。
 - **R2** 集成测试 SHALL NOT 使用 `sleep` 等待，一律用条件轮询 + 明确超时（防 flaky）。
-- **R3** THE SYSTEM SHALL 覆盖 `docs/15` §10 的全部场景表。
+- **R3** THE SYSTEM SHALL 覆盖 `docs/20` §10 的全部场景表。
 - **R4** THE SYSTEM SHALL 提供混沌注入能力：随机杀 PG、断 provider、注入 panic、灌满队列、施加内存压力。
 - **R5** 每条被验证的宪法条款 SHALL 在测试名中标注（如 `c19_pg_outage_does_not_affect_dataplane`）。
 
@@ -45,12 +45,12 @@
 
 | # | 场景 | 断言 | 条款 |
 |---|------|------|------|
-| S8 | provider 429 + `Retry-After` | fallback 成功，客户端无感知，`x-argus-fallback-from` 存在 | — |
-| S9 | provider 401 | **不** fallback，透传 401 + 告警指标 | — |
+| S8 | provider 429 + `Retry-After` | 同 Profile 重试成功，客户端无感知，`x-argus-attempts: 2` | — |
+| S9 | provider 401 | **不**重试，透传 401 + 告警指标 | — |
 | S10 | provider 在 S3 中断 | 流内 error 事件；audit 记 partial + `UpstreamError` | C18 |
 | S11 | provider hang（无响应） | headers 超时 → S1 → 按配置 retry，`retry_after_send` 已记录 | — |
 | S12 | 全部 provider 熔断 | 503 + `Retry-After` | — |
-| S13 | provider "200 then error event" + `first_event_gate` | 成功 fallback | — |
+| S13 | provider "200 then error event" + `first_event_gate` | 成功重试 | — |
 
 ### 4.3 客户端行为
 
@@ -115,6 +115,25 @@ impl TestArgus { pub async fn inject(&self, c: Chaos); }
 - S15 的 RSS 断言要减去基线并留余量（分配器碎片）。
 - testcontainers 的 PG 启停较慢（~2s），把同一组场景复用一个容器，只在需要时重启。
 
+## 7b. v2 新增：前置组件与 SSRF 场景
+
+| # | 场景 | 期望 |
+|---|---|---|
+| S29 | nginx（`merge_slashes on`）后跑 Raw **直接形式** | 失败，且失败方式可诊断 |
+| S30 | nginx（`merge_slashes off`）后跑两种形式 | 都成功 |
+| S31 | Traefik 后跑两种形式 | 都成功（待实测确认） |
+| S32 | 目标解析到 `127.0.0.1` | 403 `target_denied`，body 无 IP |
+| S33 | 多值 A 记录含一个内网 IP | 整体拒绝 |
+| S34 | DNS rebinding（两次解析不同） | 连接时检出 + 计数 |
+| S35 | Redirect 到内网，`follow_redirects=false` | 3xx 原样透传 |
+| S36 | Redirect 到内网，`follow_redirects=true` | 第二跳被拒 |
+| S37 | 跨 origin redirect | 凭据 header 被剥除 |
+
+S29–S31 需要 Docker，**不进默认 CI**，但发布前必须跑，结果回填到
+`docs/18-deployment.md` §5.9。
+
+---
+
 ## 7. 任务
 
 - [ ] T1 `tests/support/harness.rs`：`TestArgus` + `wait_for`
@@ -140,7 +159,7 @@ for i in $(seq 20); do cargo test --test integration || exit 1; done   # 反 fla
 - [ ] 每个宪法条款至少被一个测试名标注覆盖：C5, C7, C10, C11, C12, C13, C17, C18, C19
 - [ ] S1 的数据一致性断言精确到行数（零丢失、零重复）
 - [ ] S19/S20 的延迟断言用 p99 统计而非单次
-- [ ] S26 输出实际超额量（回填 `docs/09` OQ-2）
+- [ ] S26 输出实际超额量（回填 `docs/14` OQ-2）
 
 ## 9. 交给后续
 

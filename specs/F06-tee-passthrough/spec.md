@@ -6,7 +6,7 @@
 | 里程碑 | M0 |
 | 依赖 | F02, F05 |
 | 主 crate | `argus-proxy` |
-| 设计依据 | `docs/02-data-plane.md` §5,§8；`docs/05-streaming.md` §4,§6；`docs/ADR/ADR-005-streaming-architecture.md` |
+| 设计依据 | `docs/06-data-plane.md` §5,§8；`docs/10-streaming.md` §4,§6；`docs/ADR/ADR-009-streaming-tee.md` |
 | 宪法条款 | C1, C5, C9, C10, C11, C13, C21, C22, C23 |
 
 ## 1. 目标
@@ -29,10 +29,10 @@
 - **R6** WHEN 下一次 `try_send` 成功 THE SYSTEM SHALL 通过 `TeeChunk.gap_before` 上报累积的丢弃量（宪法 C13）。
 - **R7** IF channel 已关闭（Observer 结束/panic）THEN THE SYSTEM SHALL 摘掉 tee 并继续透传。
 - **R8** THE SYSTEM SHALL 在 Observer 侧消费 chunk 后回收字节信用（`in_flight.fetch_sub`）。
-- **R9** Observer SHALL 只持有 `mpsc::Receiver<TeeChunk>`，**不得**持有任何 hyper 类型（否则取消传播失效，`docs/02` §8.1）。
+- **R9** Observer SHALL 只持有 `mpsc::Receiver<TeeChunk>`，**不得**持有任何 hyper 类型（否则取消传播失效，`docs/06` §8.1）。
 - **R10** WHEN 客户端断开 THE SYSTEM SHALL 在一个 RTT 内关闭上游连接，且 Observer SHALL 以 `Outcome::ClientAborted` 收尾并提交 partial 结果。
 - **R11** THE SYSTEM SHALL 用 `catch_unwind` 包裹 parser step；IF parser panic THEN 摘掉观测、继续透传、`Outcome::ParserFailed`（宪法 C7）。
-- **R12** THE SYSTEM SHALL 在收到上游 response header 后、写出 client header 前检查 status（为 F16 的 S2 fallback 预留钩子）。
+- **R12** THE SYSTEM SHALL 在收到上游 response header 后、写出 client header 前检查 status（为 F16 的 S2 重试预留钩子）。
 - **R13** THE SYSTEM SHALL 对上游连接器 ALPN 优先协商 h2（宪法 C23）。
 - **R14** THE SYSTEM SHALL NOT 为慢客户端分配发送缓冲（宪法 C11）。
 - **R15** THE SYSTEM SHALL 全量 buffer 请求体（上限 8 MiB），并把同一个 `Bytes` 的 clone 交给 Observer（零拷贝）。
@@ -43,12 +43,12 @@
 ```rust
 // argus-proxy/src/tee.rs
 pin_project! { pub struct TeeBody<B> { #[pin] inner: B, sink: Option<TeeHandle>, stats: TeeStats } }
-impl<B: Body<Data = Bytes>> Body for TeeBody<B> { /* 见 docs/02 §5.1 */ }
+impl<B: Body<Data = Bytes>> Body for TeeBody<B> { /* 见 docs/06 §5.1 */ }
 
 pub struct TeeHandle { /* tx, byte_budget, in_flight: Arc<AtomicU64>, pending_gap */ }
 impl TeeHandle {
     pub fn new(cap: usize, byte_budget: u64) -> (Self, mpsc::Receiver<TeeChunk>);
-    fn offer(&mut self, data: Bytes, stats: &mut TeeStats);   // 见 docs/02 §5.1
+    fn offer(&mut self, data: Bytes, stats: &mut TeeStats);   // 见 docs/06 §5.1
     fn close(self, end: TeeEnd);
 }
 
@@ -66,7 +66,7 @@ impl Observer {
 }
 ```
 
-Observer 内部是**同步调用链**，无 await、无 channel、无动态分发（`docs/05` §7.3）：
+Observer 内部是**同步调用链**，无 await、无 channel、无动态分发（`docs/10` §7.3）：
 
 ```
 rx.recv().await → framer.push() → parser.on_frame() → acc.apply()
@@ -77,7 +77,7 @@ rx.recv().await → framer.push() → parser.on_frame() → acc.apply()
 - `offer` 的顺序很重要：**先查字节预算，再 `try_send`**。反过来会让超大 chunk 已经进队列才发现超预算。
 - `TeeStats` 用 `&mut` 传递而非 `Arc<Atomic>`：它只被 `poll_frame` 单线程访问，无需原子。
 - `catch_unwind` 包的是 `framer.push + parser.on_frame + acc.apply` 这一整段（它们是纯数据，`UnwindSafe`）。捕获后设 `parser_dead = true`，之后只 drain channel 不解析。
-- 上游客户端用 `hyper_util::client::legacy::Client<HttpsConnector, Full<Bytes>>`，**不要用 `reqwest`**（`docs/02` §13-A）。
+- 上游客户端用 `hyper_util::client::legacy::Client<HttpsConnector, Full<Bytes>>`，**不要用 `reqwest`**（`docs/06` §13-A）。
 - R12 的钩子本切片只需要"拿到 status 后再决定是否写 client header"的**结构**，判定逻辑是 `if status.is_success() { commit() } else { error_out() }`，F16 才填 fallback。
 - 本切片的 `InteractionSink` 实现是 `LogSink`（`tracing::info!` 打印摘要），F12 换成 `PgSink`。
 
@@ -120,5 +120,5 @@ ARGUS_UPSTREAM=http://127.0.0.1:9999 cargo run -p argus-server &   # 配合 F07 
 | 路由与 provider 选择 | F14 |
 | 真实落库 | F12 |
 | `ObserveMode` 降级、`GatedBody` | F20 / F25 |
-| S2 fallback 的实际判定 | F16 |
+| S2 重试的实际判定 | F16 |
 | 指标接线 | F15 |

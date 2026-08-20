@@ -6,7 +6,7 @@
 | 里程碑 | M2 |
 | 依赖 | F16 |
 | 主 crate | `argus-proxy` |
-| 设计依据 | `docs/07-provider-routing.md` §8；`docs/04-protocols.md` §6.4；`docs/02-data-plane.md` §7.4 |
+| 设计依据 | `docs/08-provider-profiles.md` §8；`docs/09-observers.md` §6.4；`docs/06-data-plane.md` §7.4 |
 | 宪法条款 | C1, C17 |
 
 ## 1. 目标
@@ -32,7 +32,7 @@
 
 ## 4. 需求 · 429 退避
 
-- **R9** 429 SHALL NOT 计入主熔断器（`docs/07` §8.2）。
+- **R9** 429 SHALL NOT 计入主熔断器（`docs/08` §8.2）。
 - **R10** WHEN 收到 429 THE SYSTEM SHALL 设置该 provider 的 `throttled_until`，优先采用响应的 `Retry-After` 头。
 - **R11** IF 无 `Retry-After` THEN THE SYSTEM SHALL 使用指数退避的估算值。
 - **R12** WHILE provider 处于 throttled THE SYSTEM SHALL 在选路时跳过它，但状态显示为"限流"而非"故障"。
@@ -40,13 +40,13 @@
 
 ## 5. 需求 · 方言
 
-- **R14** THE SYSTEM SHALL 支持 `docs/04` §6.4 的 `Dialect` 配置项。
-- **R15** `Dialect` SHALL 只影响 `ProtocolParser` 的观测行为与 header 注入，**绝不改写转发的 body 字节**（宪法 C1）。
+- **R14** THE SYSTEM SHALL 支持 `docs/09` §6.4 的 `Dialect` 配置项。
+- **R15** `Dialect` SHALL 只影响 `ProtocolObserver` 的观测行为与 header 注入，**绝不改写转发的 body 字节**（宪法 C1）。
 - **R16** WHERE `dialect.reasoning_field` 已配置 THE SYSTEM SHALL 把该字段映射为 `BlockKind::Reasoning`。
 - **R17** WHERE `dialect.emits_done_sentinel = false` THE SYSTEM SHALL 不因缺少 `[DONE]` 而报异常。
 - **R18** `dialect.required_headers` SHALL 被无条件注入（如 `anthropic-version`）。
 - **R19** IF 方言配置错误 THEN 影响 SHALL 限于观测数据不准，代理必须不受影响。
-- **R20** WHERE `first_event_gate = true`（per-provider，默认 false）THE SYSTEM SHALL 在写出 client header 前先 poll 出首个 body frame 以判定 "200 + error event"（`docs/02` §7.4）。
+- **R20** WHERE `first_event_gate = true`（per-provider，默认 false）THE SYSTEM SHALL 在写出 client header 前先 poll 出首个 body frame 以判定 "200 + error event"（`docs/06` §7.4）。
 - **R21** THE SYSTEM SHALL 在文档与配置校验中明示 `first_event_gate` 会增加 TTFT。
 
 ## 6. 接口契约
@@ -72,7 +72,7 @@ pub struct CircuitBreaker { state: AtomicU8, window: SlidingWindow, opened_at: A
 - **R4 的边界要小心**：S3 阶段的流中断很可能是客户端断开而非 provider 故障。把它计入失败会导致误熔断。
 - 滑动窗口用固定桶数组（如 30 个 1 秒桶），避免每次记录都分配。
 - `throttled_until` 与熔断是**两个独立状态**（R9）。选路时二者都要查，但语义与展示不同。
-- 主动探测（可选）只用免费端点（`GET /v1/models`），**绝不做 chat 探测**（那会真的花钱，`docs/07` §8.3）。探测结果只作降权软信号，不直接熔断。
+- 主动探测（可选）只用免费端点（`GET /v1/models`），**绝不做 chat 探测**（那会真的花钱，`docs/08` §8.3）。探测结果只作降权软信号，不直接熔断。
 - **R19 的验证方式**：故意配一个错误的 `reasoning_field`，断言代理仍 200 且 body 逐字节正确，只是 `blocks` 里少了 reasoning。
 - `first_event_gate` 的实现要复用 F14 的 S2 检查点，在 commit 之前多 poll 一次。
 

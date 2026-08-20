@@ -6,7 +6,7 @@
 | 里程碑 | M0 |
 | 依赖 | F02 |
 | 主 crate | `argus-protocol` |
-| 设计依据 | `docs/06-observation-model.md` §4,§6,§7；`docs/ADR/ADR-004-observation-ir.md` |
+| 设计依据 | `docs/11-observation-model.md` §4,§6,§7；`docs/ADR/ADR-011-observation-ir.md` |
 | 宪法条款 | C2, C6, C13, C14, C21 |
 
 ## 1. 目标
@@ -23,11 +23,11 @@
 
 ## 3. 需求
 
-- **R1** THE SYSTEM SHALL 定义 `ObservedEvent` 与 `ObservedEventKind`，取值与 `docs/06` §4.2 完全一致，`#[non_exhaustive]`。
+- **R1** THE SYSTEM SHALL 定义 `ObservedEvent` 与 `ObservedEventKind`，取值与 `docs/11` §4.2 完全一致，`#[non_exhaustive]`。
 - **R2** THE SYSTEM SHALL 定义 `BlockCoord { choice: u8, item: u16, part: u16 }`，`Copy` + `Ord` + `Hash`。
 - **R3** THE SYSTEM SHALL 为未知内容提供容纳位：`Unknown{event_name}`、`BlockDelta::Opaque`、`BlockKind::Other`、`FinishReason::Other + raw_reason`、`UsageDelta.extra`（宪法 C2）。
 - **R4** THE SYSTEM SHALL 定义 `trait InteractionSink`，方法 `try_submit(&self, Box<ObservedInteraction>) -> Result<(), SinkFull>`，**非阻塞**（宪法 C5）。
-- **R5** THE SYSTEM SHALL 把 usage 按 **last-non-null wins、逐字段独立** 合并（`docs/06` §6）。
+- **R5** THE SYSTEM SHALL 把 usage 按 **last-non-null wins、逐字段独立** 合并（`docs/11` §6）。
 - **R6** THE SYSTEM SHALL NOT 对 usage 求和。
 - **R7** WHEN usage 完全缺失 THE SYSTEM SHALL 提供 `estimated_output_tokens` 并置 `usage_source = Missing`，且**不写入真实 usage 字段**（宪法 C14）。
 - **R8** WHEN 累积文本超过 `max_accumulated_bytes` THE SYSTEM SHALL 置 `truncated = true` 并停止累积，但**继续消费后续事件**（宪法 C10）。
@@ -38,17 +38,17 @@
 
 ## 4. 接口契约
 
-完整类型定义见 `docs/06` §4.1–4.5、§7.1、§7.5 与 `docs/02` §10（`TraceContext`）。本 spec **不重复**，只固定这几处签名：
+完整类型定义见 `docs/11` §4.1–4.5、§7.1、§7.5 与 `docs/06` §10（`TraceContext`）。本 spec **不重复**，只固定这几处签名：
 
 ```rust
-// argus-protocol/src/sink.rs   ← 放这里而不是 core，见 docs/10 §4.1（避免循环依赖）
+// argus-protocol/src/sink.rs   ← 放这里而不是 core，见 docs/15 §4.1（避免循环依赖）
 pub trait InteractionSink: Send + Sync + 'static {
     fn try_submit(&self, interaction: Box<ObservedInteraction>) -> Result<(), SinkFull>;
 }
 pub struct SinkFull(pub Box<ObservedInteraction>);   // 归还所有权，调用方决定丢弃策略
 
 // argus-protocol/src/accumulator/mod.rs
-pub struct Accumulator { /* 见 docs/06 §7.1 */ }
+pub struct Accumulator { /* 见 docs/11 §7.1 */ }
 
 impl Accumulator {
     pub fn new(meta: RequestMeta, cfg: AccumulatorConfig) -> Self;
@@ -64,7 +64,7 @@ pub struct AccumulatorConfig {
 }
 ```
 
-**`apply` 的签名是刻意的**：返回 `()` 而不是 `Result`。累积器永不失败——任何异常都是 `anomalies` 里的一条记录（`docs/06` §7.3）。
+**`apply` 的签名是刻意的**：返回 `()` 而不是 `Result`。累积器永不失败——任何异常都是 `anomalies` 里的一条记录（`docs/11` §7.3）。
 
 ## 5. 实现要点
 
@@ -72,7 +72,7 @@ pub struct AccumulatorConfig {
 - `blocks` 用 `BTreeMap<BlockCoord, BlockState>`：`BlockCoord` 是 `Copy` 的固定大小 key，无堆分配；`BTreeMap` 保证最终按坐标有序输出。
 - `TextBlockState::push` 的 cap 检查在 `push_str` **之前**，避免先扩容再发现超限。
 - **R6 是最危险的一条**：Anthropic 的 `message_delta.usage.output_tokens` 是累积值，求和会让计费翻倍且"看起来合理"。必须有专门的单元测试锁死。
-- `estimated_output_tokens` 本切片用最简策略（`text_bytes / 4`），精度问题记在 `docs/06` OQ-5。
+- `estimated_output_tokens` 本切片用最简策略（`text_bytes / 4`），精度问题记在 `docs/11` OQ-5。
 
 ## 6. 任务
 
