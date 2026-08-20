@@ -170,6 +170,17 @@ done
 if [ "$GUARDED" = 1 ]; then ok "tee/gate 中无阻塞 send"; else echo "  skip tee.rs/gate.rs 尚未存在（F04/F25 落地后自动生效）"; fi
 
 # ---------------------------------------------------------------------------
+echo "=== [C34] ProviderType 不得驱动行为 ==="
+# provider_type 只用于 UI 模板与指标标签。需要差异化的东西是 Profile 上的
+# **数据**，不是代码里的 match —— 否则每加一个供应商就要发版。
+if find crates/argus-proxy/src crates/argus-server/src -name '*.rs' 2>/dev/null -print0 \
+   | xargs -0 grep -nE 'match[^\n]*ProviderType|ProviderType::[A-Za-z]+[[:space:]]*=>' 2>/dev/null \
+   | sed 's://.*::' | grep -qE 'ProviderType'; then
+  fail C34 "Data Plane 里出现了对 ProviderType 的分支" \
+    "认证 header、额外 header 这些差异是 Profile 上的数据（docs/08 §5），不是 match。"
+fi
+ok "无 ProviderType 分支"
+
 echo "=== [C27] 日志敏感字段 ==="
 python3 ci/check_log_fields.py crates || exit 1
 

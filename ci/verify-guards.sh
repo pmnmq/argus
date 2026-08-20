@@ -272,6 +272,29 @@ EOF
 run_case "写了没格式化的代码" "Diff in" -- ./ci/fmt.sh --check
 
 echo ""
+echo "=== 8e. v2 路由不变式（C34 / C35） ==="
+mkdir -p crates/argus-proxy/src
+cat >> crates/argus-proxy/src/lib.rs <<'EOF'
+
+pub fn branch_on_type(t: argus_core::ProviderType) -> &'static str {
+    match t {
+        argus_core::ProviderType::Anthropic => "special",
+        _ => "normal",
+    }
+}
+EOF
+run_case "Data Plane 里 match ProviderType" "FAIL [C34]" -- "$INV"
+
+cat >> crates/argus-proxy/src/lib.rs <<'EOF'
+
+pub fn decode_path(p: axum::extract::Path<String>) -> String {
+    p.0
+}
+EOF
+run_case "ingress 用了 axum 的 Path 提取器" "disallowed_types" -- \
+  cargo clippy -p argus-proxy --offline -- -D warnings
+
+echo ""
 echo "=== 9. 拆 crate 需要理由（C32） ==="
 mkdir -p crates/argus-bogus/src
 cat > crates/argus-bogus/Cargo.toml <<'EOF'

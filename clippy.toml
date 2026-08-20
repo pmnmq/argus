@@ -10,6 +10,11 @@ disallowed-methods = [
 ]
 
 disallowed-types = [
+  # ⚠️ 宪法 C35：ingress 里绝对不能用会百分号解码的提取器。
+  # 实测 axum 的 Path 会把 %2F 解成 /，路径段数都变了，上游收到的是另一个
+  # 资源，且不报错（docs/04-raw-proxy-mode.md §5.2）。
+  # 只能读 uri().path() / uri().query() 按字节切。
+  { path = "axum::extract::Path", reason = "会 decode，破坏透明性；改读 uri().path() 按字节切" },
   { path = "std::sync::mpsc::Sender",   reason = "同步 channel 会阻塞 async 任务，用 tokio::sync::mpsc" },
   { path = "std::sync::mpsc::Receiver", reason = "同上" },
 ]
