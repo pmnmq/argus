@@ -32,8 +32,12 @@ Profile 的加载与缓存（→ F11）。
   **禁止**使用 `axum::extract::Path` 或任何会百分号解码的提取器。
 - **R2** WHEN 路径以 `/provider/` 开头 THE SYSTEM SHALL 按**字节**切出第一个
   path 段作为 profile 名，其余原样作为 upstream path。
-- **R3** THE SYSTEM SHALL 用 `rstrip(base_url,'/') + '/' + lstrip(rest,'/')` 拼接，
-  且这是**唯一**的拼接规则。
+- **R3** THE SYSTEM SHALL 用 `rstrip(base_url,'/') + '/' + strip_one(rest,'/')`
+  拼接，且这是**唯一**的拼接规则。两边**刻意不对称**：base_url 去掉尾部
+  **全部**的 `/`，rest 只去掉**一个**前导 `/` —— 去光了会把 `/provider/x//foo`
+  折叠成 `{base}/foo`，与 R5 冲突。
+  `base_url` 的形状（无 query / fragment / userinfo）由配置写入时保证
+  （`specs/F22` §6 R28），本切片不重复校验。
 - **R4** THE SYSTEM SHALL 原样透传 query，不解析成 map、不重新序列化。
 - **R5** THE SYSTEM SHALL NOT 做 path 规范化：不折叠 `//`、不解 `.`/`..`、不改大小写。
 - **R6** WHEN 路径为 `/provider/{name}`（无尾斜杠、无 path）THE SYSTEM SHALL
