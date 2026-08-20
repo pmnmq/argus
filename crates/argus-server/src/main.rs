@@ -9,20 +9,14 @@
 #![forbid(unsafe_code)]
 
 fn main() {
-    // F03 起替换为 clap 的子命令（serve / migrate / config / keys / doctor / keygen）。
+    // F04 起替换为 clap 的子命令（serve / migrate / config / keys / doctor / keygen）。
     println!("argus {}", env!("CARGO_PKG_VERSION"));
 
-    let protocols: Vec<&str> = argus_core::Protocol::ALL
-        .iter()
-        .map(|p| p.as_str())
-        .collect();
-    println!("protocols: {}", protocols.join(", "));
+    let observers: Vec<&str> = argus_core::ObserverKind::ALL.iter().map(|k| k.as_str()).collect();
+    println!("observers: {}", observers.join(", "));
 
-    let providers: Vec<&str> = argus_core::ProviderKind::ALL
-        .iter()
-        .map(|k| k.as_str())
-        .collect();
-    println!("providers: {}", providers.join(", "));
+    let providers: Vec<&str> = argus_core::ProviderType::ALL.iter().map(|t| t.as_str()).collect();
+    println!("provider types: {}", providers.join(", "));
 
     println!(
         "linked:    argus-core, {}, {}, {}",

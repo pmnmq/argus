@@ -9,17 +9,19 @@
 
 pub mod error;
 pub mod ids;
-pub mod protocol;
+pub mod observe;
 pub mod provider;
 pub mod route;
+pub mod target;
 pub mod tee;
 
 pub use error::{ProxyError, QuotaKind, UpstreamStage};
 pub use ids::{
-    ApiKeyId, BindingId, ConversationLink, CredentialId, EndpointId, ProviderId, TraceContext,
+    ApiKeyId, ConversationLink, CredentialId, ProviderId, ProviderProfileId, TraceContext,
     WorkspaceId,
 };
-pub use protocol::{FrameFormat, Protocol, ProviderKind};
-pub use provider::{CredentialKind, InvalidCredential, ResolvedCredential};
-pub use route::{Backoff, ObserveMode, RetryPolicy, RouteDecision, Timeouts};
+pub use observe::{FrameFormat, ObserveMode, ObserverKind};
+pub use provider::{CredentialKind, InvalidCredential, ProviderType, ResolvedCredential};
+pub use route::{Backoff, RetryPolicy, Timeouts};
+pub use target::{CredentialMode, ResolvedTarget, TargetOrigin};
 pub use tee::{CancelReason, TeeChunk, TeeEnd};

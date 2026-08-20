@@ -1,22 +1,20 @@
 //! `ProxyError` 与它到 HTTP / 重试 / 阶段的映射。
 //!
-//! 设计依据：`docs/02-data-plane.md` §7,§9；`docs/07-provider-routing.md` §7.1；
-//! `docs/09-auth.md` §6；`docs/12-reliability.md` §5。
+//! 设计依据：`docs/06-data-plane.md` §7,§9；`docs/08-provider-profiles.md` §7.1；
+//! `docs/14-auth-and-credentials.md` §6；`docs/17-reliability.md` §5。
 
-use core::fmt;
-use core::time::Duration;
+use core::{fmt, time::Duration};
 
 use compact_str::CompactString;
 use http::StatusCode;
 
-use crate::protocol::{Protocol, ProviderKind};
 use crate::tee::CancelReason;
 
 /// 请求在上游状态机里走到了哪一步。
 ///
 /// 这个顺序是有意义的：它决定了「provider 有没有可能已经产生副作用」
 /// 以及「有没有字节已经写给客户端」。`Ord` 按状态推进方向排列。
-/// 见 `docs/02` §7.1。
+/// 见 `docs/06` §7.1。
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Default)]
 pub enum UpstreamStage {
     /// 还没走到上游（认证、限流、选路阶段的失败）
@@ -101,15 +99,38 @@ pub enum ProxyError {
     // ── 授权与准入 ────────────────────────────────────────────────────
     #[error("insufficient scope: {0}")]
     ScopeDenied(&'static str),
-    #[error("model not allowed: {0}")]
-    ModelNotAllowed(CompactString),
-    #[error("unknown model: {0}")]
-    UnknownModel(CompactString),
-    #[error("provider kind {} cannot serve protocol {}", .kind.as_str(), .protocol.as_str())]
-    ProtocolNotSupported {
-        kind: ProviderKind,
-        protocol: Protocol,
-    },
+    // ⚠️ v2 删除了 ModelNotAllowed / UnknownModel / ProtocolNotSupported：
+    // 模型目录不存在，也没有 supports 矩阵（宪法 C33、ADR-005/010）。
+    /// Profile 不存在 **或** 这把 Key 无权访问。
+    ///
+    /// 两种情况必须**不可区分**，否则可以用低权限 Key 逐个探测出租户里
+    /// 配了哪些 provider（`docs/14-auth-and-credentials.md` §7.2）。
+    #[error("provider not found")]
+    ProviderNotFound,
+    #[error("provider is disabled")]
+    ProviderDisabled,
+    #[error("provider is misconfigured")]
+    ProviderMisconfigured,
+    /// Raw 模式是显式权限，默认关闭
+    #[error("raw proxy is not allowed for this key")]
+    RawProxyNotAllowed,
+    #[error("invalid raw target")]
+    InvalidRawTarget,
+    #[error("scheme not allowed")]
+    SchemeNotAllowed,
+    #[error("upstream path is empty")]
+    EmptyUpstreamPath,
+    /// 被 Target Policy 拒绝。**不携带任何 IP 或拒绝原因** ——
+    /// 区分开就等于把 Argus 变成内网存活探测器（`docs/13-ssrf-protection.md` §8）。
+    #[error("target is not allowed by policy")]
+    TargetDenied,
+    #[error("target dns resolution failed")]
+    TargetDnsFailure,
+    /// 连接时的实际 IP 与判定过的不一致
+    #[error("target rebinding detected")]
+    TargetRebindDetected,
+    #[error("provider credential unavailable")]
+    CredentialUnavailable,
     #[error("invalid request: {0}")]
     InvalidRequest(CompactString),
     #[error("payload too large: limit is {limit_bytes} bytes")]
@@ -175,20 +196,33 @@ impl ProxyError {
             Self::InvalidApiKey | Self::KeyExpired | Self::KeyRevoked => StatusCode::UNAUTHORIZED,
             Self::IpNotAllowed
             | Self::ScopeDenied(_)
-            | Self::ModelNotAllowed(_)
-            | Self::SecurityBlocked(_) => StatusCode::FORBIDDEN,
-            Self::UnknownModel(_) => StatusCode::NOT_FOUND,
-            Self::InvalidRequest(_) | Self::ProtocolNotSupported { .. } => StatusCode::BAD_REQUEST,
+            | Self::SecurityBlocked(_)
+            | Self::RawProxyNotAllowed
+            | Self::TargetDenied
+            | Self::TargetRebindDetected => StatusCode::FORBIDDEN,
+            // ⚠️ 与「无权访问」必须完全一致，见变体上的说明
+            Self::ProviderNotFound => StatusCode::NOT_FOUND,
+            Self::InvalidRequest(_)
+            | Self::InvalidRawTarget
+            | Self::SchemeNotAllowed
+            | Self::EmptyUpstreamPath => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::QuotaExceeded { .. } => StatusCode::TOO_MANY_REQUESTS,
+            // Cancelled 也归到这里：客户端主动断开对应的 499 不是标准状态码，
+            // 而"服务端暂时无法完成"是这几种情况共同的语义。
             Self::AuthUnavailable
             | Self::NoHealthyProvider
             | Self::CircuitOpen(_)
             | Self::Overloaded(_)
-            | Self::ShuttingDown => StatusCode::SERVICE_UNAVAILABLE,
+            | Self::ShuttingDown
+            | Self::ProviderDisabled
+            | Self::ProviderMisconfigured
+            | Self::CredentialUnavailable
+            | Self::Cancelled { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::Connect(_)
             | Self::UpstreamIncomplete { .. }
             | Self::StreamAborted(_)
+            | Self::TargetDnsFailure
             | Self::RetryBudgetExhausted => StatusCode::BAD_GATEWAY,
             Self::UpstreamTimeout { .. } => StatusCode::GATEWAY_TIMEOUT,
             // 上游 status 原样透传 —— 包括 3xx（Argus 不跟随重定向，
@@ -196,8 +230,6 @@ impl ProxyError {
             Self::UpstreamStatus { status } => {
                 StatusCode::from_u16(*status).unwrap_or(StatusCode::BAD_GATEWAY)
             }
-            // 客户端主动断开时按 499 处理不了（不是标准码），统一 503
-            Self::Cancelled { .. } => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
         }
     }
@@ -213,9 +245,17 @@ impl ProxyError {
             Self::IpNotAllowed => "ip_not_allowed",
             Self::AuthUnavailable => "auth_unavailable",
             Self::ScopeDenied(_) => "insufficient_scope",
-            Self::ModelNotAllowed(_) => "model_not_allowed",
-            Self::UnknownModel(_) => "model_not_found",
-            Self::ProtocolNotSupported { .. } => "protocol_not_supported",
+            Self::ProviderNotFound => "provider_not_found",
+            Self::ProviderDisabled => "provider_disabled",
+            Self::ProviderMisconfigured => "provider_misconfigured",
+            Self::RawProxyNotAllowed => "raw_proxy_not_allowed",
+            Self::InvalidRawTarget => "invalid_raw_target",
+            Self::SchemeNotAllowed => "scheme_not_allowed",
+            Self::EmptyUpstreamPath => "empty_upstream_path",
+            Self::TargetDenied => "target_denied",
+            Self::TargetDnsFailure => "target_dns_failure",
+            Self::TargetRebindDetected => "target_rebind_detected",
+            Self::CredentialUnavailable => "credential_unavailable",
             Self::InvalidRequest(_) => "invalid_request",
             Self::PayloadTooLarge { .. } => "payload_too_large",
             Self::QuotaExceeded { .. } => "quota_exceeded",
@@ -246,9 +286,17 @@ impl ProxyError {
             | Self::IpNotAllowed
             | Self::AuthUnavailable
             | Self::ScopeDenied(_)
-            | Self::ModelNotAllowed(_)
-            | Self::UnknownModel(_)
-            | Self::ProtocolNotSupported { .. }
+            | Self::ProviderNotFound
+            | Self::ProviderDisabled
+            | Self::ProviderMisconfigured
+            | Self::RawProxyNotAllowed
+            | Self::InvalidRawTarget
+            | Self::SchemeNotAllowed
+            | Self::EmptyUpstreamPath
+            | Self::TargetDenied
+            | Self::TargetDnsFailure
+            | Self::TargetRebindDetected
+            | Self::CredentialUnavailable
             | Self::InvalidRequest(_)
             | Self::PayloadTooLarge { .. }
             | Self::QuotaExceeded { .. }
@@ -346,12 +394,17 @@ mod tests {
             ProxyError::IpNotAllowed,
             ProxyError::AuthUnavailable,
             ProxyError::ScopeDenied("audit:read"),
-            ProxyError::ModelNotAllowed("gpt-5".into()),
-            ProxyError::UnknownModel("nope".into()),
-            ProxyError::ProtocolNotSupported {
-                kind: ProviderKind::Anthropic,
-                protocol: Protocol::OpenAiChat,
-            },
+            ProxyError::ProviderNotFound,
+            ProxyError::ProviderDisabled,
+            ProxyError::ProviderMisconfigured,
+            ProxyError::RawProxyNotAllowed,
+            ProxyError::InvalidRawTarget,
+            ProxyError::SchemeNotAllowed,
+            ProxyError::EmptyUpstreamPath,
+            ProxyError::TargetDenied,
+            ProxyError::TargetDnsFailure,
+            ProxyError::TargetRebindDetected,
+            ProxyError::CredentialUnavailable,
             ProxyError::InvalidRequest("missing field: model".into()),
             ProxyError::PayloadTooLarge {
                 limit_bytes: 1 << 20,
@@ -390,7 +443,7 @@ mod tests {
         codes.dedup();
         assert_eq!(
             codes.len(),
-            25,
+            33,
             "样本没覆盖全部变体，或有两个变体共用了同一个 error_code"
         );
     }
@@ -496,6 +549,35 @@ mod tests {
             ProxyError::IpNotAllowed,
             ProxyError::AuthUnavailable,
         ]
+    }
+
+    /// R8 / 宪法 C33 的防枚举：「profile 不存在」与「无权访问」必须
+    /// 对调用方**完全不可区分**。
+    ///
+    /// 这两者在 Data Plane 是两条不同的代码路径，很容易在某次重构里
+    /// 被拆成两个错误码 —— 那时攻击者就能用低权限 Key 逐个探测出
+    /// 租户里配了哪些 provider。这个测试把等价性钉死。
+    #[test]
+    fn provider_not_found_is_indistinguishable_from_unauthorized() {
+        // 授权失败时 Data Plane 必须复用同一个变体，而不是新造一个
+        let not_found = ProxyError::ProviderNotFound;
+        let unauthorized = ProxyError::ProviderNotFound;
+        assert_eq!(not_found.http_status(), unauthorized.http_status());
+        assert_eq!(not_found.error_code(), unauthorized.error_code());
+        assert_eq!(not_found.to_string(), unauthorized.to_string());
+        // 且不能泄漏"存在但无权"这层信息
+        assert!(!not_found.to_string().contains("allow"));
+        assert!(!not_found.to_string().contains("permission"));
+    }
+
+    /// `target_denied` 不得携带任何 IP 或拒绝原因
+    /// （`docs/13-ssrf-protection.md` §8）—— 区分开就等于内网存活探测器。
+    #[test]
+    fn display_target_denied_contains_no_address_or_reason() {
+        let msg = ProxyError::TargetDenied.to_string();
+        for leak in ["127.0.0.1", "10.", "192.168", "cidr", "private", "port"] {
+            assert!(!msg.contains(leak), "拒绝信息泄漏了 `{leak}`：{msg}");
+        }
     }
 
     #[test]

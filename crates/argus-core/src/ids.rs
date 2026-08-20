@@ -73,12 +73,12 @@ id_newtype!(
     ProviderId
 );
 id_newtype!(
-    /// provider 下的一个具体接入点（region / deployment / base_url）。
-    EndpointId
-);
-id_newtype!(
-    /// 逻辑模型 → provider 模型的一条绑定。capabilities 挂在这一层。
-    BindingId
+    /// 一个 Provider Profile —— **路由的单位**。
+    ///
+    /// v2 删掉了 `EndpointId` 与 `BindingId`：一个 Profile 一个 `base_url`
+    /// （多地域 = 多个 Profile），而模型绑定整个不存在了
+    /// （`docs/02-routing-model.md` §3）。
+    ProviderProfileId
 );
 id_newtype!(
     /// 一份 provider 凭据。轮换时新增而非覆盖，因此需要独立 ID。
@@ -217,7 +217,7 @@ mod tests {
     fn as_uuid_after_from_uuid_returns_the_original_uuid() {
         let raw = Uuid::now_v7();
         assert_eq!(ProviderId::from_uuid(raw).as_uuid(), raw);
-        assert_eq!(Uuid::from(EndpointId::from(raw)), raw);
+        assert_eq!(Uuid::from(ProviderProfileId::from(raw)), raw);
     }
 
     /// 安全策略只信任显式声明的会话关联。

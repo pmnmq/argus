@@ -10,6 +10,77 @@ use zeroize::Zeroizing;
 
 use crate::ids::CredentialId;
 
+/// 供应商类别。
+///
+/// # ⚠️ 只用于 UI 模板与指标标签
+///
+/// **Data Plane 禁止据此分支**（宪法 C34、ADR-007）。需要差异化的东西
+/// —— 认证 header 形式、必需的额外 header —— 是 Provider Profile 上的
+/// **数据**（`docs/08-provider-profiles.md` §5），不是代码里的 `match`。
+///
+/// 所以这个枚举**只有** `as_str()`。一旦给它加上 `default_observer()` 或
+/// `default_auth_header()` 之类的方法，`match provider_type` 就会以
+/// 「只是取个默认值」的名义回来。
+#[non_exhaustive]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderType {
+    OpenAi,
+    Anthropic,
+    AzureOpenAi,
+    Gemini,
+    Bedrock,
+    Vertex,
+    DashScope,
+    DeepSeek,
+    SiliconFlow,
+    Moonshot,
+    OpenRouter,
+    Ollama,
+    VLlm,
+    Custom,
+}
+
+impl ProviderType {
+    /// 指标标签与 UI 用，零分配（宪法 C21）。
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::OpenAi => "openai",
+            Self::Anthropic => "anthropic",
+            Self::AzureOpenAi => "azure_openai",
+            Self::Gemini => "gemini",
+            Self::Bedrock => "bedrock",
+            Self::Vertex => "vertex",
+            Self::DashScope => "dashscope",
+            Self::DeepSeek => "deepseek",
+            Self::SiliconFlow => "siliconflow",
+            Self::Moonshot => "moonshot",
+            Self::OpenRouter => "openrouter",
+            Self::Ollama => "ollama",
+            Self::VLlm => "vllm",
+            Self::Custom => "custom",
+        }
+    }
+
+    pub const ALL: [Self; 14] = [
+        Self::OpenAi,
+        Self::Anthropic,
+        Self::AzureOpenAi,
+        Self::Gemini,
+        Self::Bedrock,
+        Self::Vertex,
+        Self::DashScope,
+        Self::DeepSeek,
+        Self::SiliconFlow,
+        Self::Moonshot,
+        Self::OpenRouter,
+        Self::Ollama,
+        Self::VLlm,
+        Self::Custom,
+    ];
+}
+
 /// 凭据的形态，决定它怎么变成一个 header。
 #[non_exhaustive]
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Serialize, Deserialize)]
