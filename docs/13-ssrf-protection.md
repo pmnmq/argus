@@ -50,7 +50,7 @@ flowchart TD
     U[Target URL] --> S{scheme 白名单}
     S -->|不是 http/https| D1[拒绝 scheme_not_allowed]
     S -->|通过| H{authority 合法}
-    H -->|否| D2[拒绝 invalid_target_authority]
+    H -->|否| D2[拒绝 invalid_raw_target<br/>由 R02 在解析时就挡下]
     H -->|是| L{hostname 命中<br/>hostname allow/deny}
     L -->|deny| D3[拒绝 target_denied]
     L -->|allow 且是字面 IP| P
@@ -80,19 +80,37 @@ schemes = ["https", "http"]
 
 # 默认拒绝的网段。管理员可以在 allow_cidrs 里逐条放行。
 deny_cidrs = [
-  "127.0.0.0/8", "::1/128",              # loopback
+  "127.0.0.0/8",                         # loopback
+  "::/96",                               # 见下方三条注解
   "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",   # RFC1918
-  "fc00::/7",                            # IPv6 ULA
+  "fc00::/7",                            # IPv6 ULA（含 fd00:ec2::254）
   "169.254.0.0/16", "fe80::/10",         # link-local（含 169.254.169.254）
   "100.64.0.0/10",                       # CGNAT
-  "0.0.0.0/8", "::/128",                 # unspecified
+  "0.0.0.0/8",                           # unspecified
   "224.0.0.0/4", "ff00::/8",             # multicast
 ]
+```
+
+三条关于 v6 的注解，每条都对应一个真实的绕过面：
+
+1. **`::/96` 一条盖三样**：未指定地址 `::`、回环 `::1`，以及已废弃的
+   IPv4-compatible 写法 `::a.b.c.d`。最后那个长得像 v6，指的却是一个 v4
+   地址 —— 单写 `::1/128` + `::/128` 盖不住它。
+2. **IPv4-mapped 地址（`::ffff:127.0.0.1`）在判定前折回 v4**。不折的话，
+   一条 AAAA 记录就能让整张 v4 deny 表擦肩而过：`127.0.0.0/8` 是 v4 规则，
+   跟一个 v6 地址永远不匹配。
+3. **网络位没对齐的 CIDR 直接拒绝**，不静默规整。`192.168.1.20/16` 会报错
+   而不是变成 `192.168.0.0/16` —— 想写 `/32` 手滑写成 `/16` 的 **allow**
+   规则会放行整个 `/16`，正是 §5.1 反复强调不要干的事，帮它纠正等于帮凶。
+
+```toml
 
 # 显式放行，优先级**高于** deny_cidrs
 allow_cidrs = []
 
-# 主机名级别的 allow/deny，在 DNS 解析之前判定
+# 主机名级别的 allow/deny，在 DNS 解析之前判定。
+# 两种写法：`api.openai.com` 精确匹配；`.corp.com` 匹配它自己与全部子域。
+# 按 ASCII 大小写不敏感比较（DNS 名本来就大小写不敏感）。
 allow_hosts = []
 deny_hosts  = []
 
@@ -117,11 +135,19 @@ deny_ports  = [22, 3306, 6379]        # 11434 不在里面
 ### 5.2 优先级
 
 ```text
-deny_hosts  >  allow_hosts  >  deny_cidrs 与 allow_cidrs 的最长前缀匹配  >  默认拒绝
+deny_hosts  >  allow_hosts  >  最长前缀匹配（同长时 allow 赢）  >  放行
 ```
 
 最长前缀匹配意味着 `allow_cidrs = ["192.168.1.20/32"]` 会赢过
 `deny_cidrs = ["192.168.0.0/16"]`，符合直觉。
+
+**末项是「放行」而不是「拒绝」**：`deny_cidrs` 是黑名单。没命中任何规则的
+IP（也就是绝大多数公网地址）放行，否则默认配置下连 `api.openai.com`
+都到不了，Argus 开箱即废。
+
+这与 §11「策略配置为空不是 fail-open」不矛盾：那句说的是**空的
+`allow_cidrs` 不会让默认 `deny_cidrs` 失效**，不是说未命中即拒绝。真正的
+白名单模式由 `allow_hosts` 提供，并在 §9 的 Raw + injected 组合下强制要求。
 
 ---
 
@@ -166,6 +192,13 @@ let tls = connector.connect(ServerName::from(host), stream).await?;
 
 自建 resolver 带**短 TTL 上限**的缓存（默认 30s，且不超过记录自身的 TTL）。
 缓存的是「hostname → 已判定通过的 IP 集合」，不是原始 DNS 结果。
+
+> **实现约束**：走系统解析器（`getaddrinfo` / `tokio::net::lookup_host`）时
+> **拿不到记录自身的 TTL**，因此实际生效的是固定 30s 上限。要真正做到
+> `min(记录 TTL, 30s)` 必须引入一个自己发 DNS 报文的解析器（如
+> `hickory-resolver`），那是一笔不小的依赖。第一阶段不引入 —— 按 §6.1
+> 后一段的论证，缓存的是**已判定过的 IP**，TTL 偏长带来的是可用性问题
+> （上游换 IP 后最多 30s 才跟上），不是安全问题。见 OQ-S1。
 
 不缓存的代价是每个请求一次 DNS 往返（对本地模型可以忽略，对公网 provider
 会加几毫秒 TTFT）。缓存的风险是攻击者可以让一个曾经合规的名字后来指向内网——
