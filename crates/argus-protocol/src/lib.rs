@@ -22,8 +22,10 @@
 // 不要放宽 crate 级别的设置。
 
 pub mod framer;
+pub mod observer;
 
 pub use framer::{FrameData, FrameRef, FrameSink, Framer, FramerConfig, FramerError, SseFramer};
+pub use observer::{GenericJsonObserver, GenericSseObserver, JsonShape};
 
 /// 编译期常量，用于 F01 验收：证明 crate 真的被编译进依赖图。
 pub const CRATE_NAME: &str = "argus-protocol";
