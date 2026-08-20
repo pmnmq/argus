@@ -295,6 +295,32 @@ run_case "ingress 用了 axum 的 Path 提取器" "disallowed_types" -- \
   cargo clippy -p argus-proxy --offline -- -D warnings
 
 echo ""
+echo "=== 8f. SSRF 判定链不得被绕过（R03） ==="
+# hyper 默认的 connector 会自己解析 hostname —— 用上它，前面那套逐 IP 判定
+# 就完全是摆设。这条护栏要等 F14 装 hyper client 时才真正派上用场，
+# 所以更得先验它真的会拦。
+restore
+cat >> crates/argus-proxy/src/lib.rs <<'EOF'
+
+pub fn make_connector() -> hyper_util::client::legacy::connect::HttpConnector {
+    hyper_util::client::legacy::connect::HttpConnector::new()
+}
+EOF
+run_case "上游用了会自己解析的 HttpConnector" "disallowed_types" -- \
+  cargo clippy -p argus-proxy --offline -- -D warnings
+
+# allow_raw_proxy 一旦出现，就必须有人调用 check_raw_injected_combination。
+# 这是给 F22 埋的引线：判定逻辑已经写好了，缺的只是调用方。
+restore
+cat >> crates/argus-proxy/src/lib.rs <<'EOF'
+
+pub struct KeyScopes {
+    pub allow_raw_proxy: bool,
+}
+EOF
+run_case "引入 allow_raw_proxy 却没接 allowlist 校验" "FAIL [R03 R11]" -- "$INV"
+
+echo ""
 echo "=== 9. 拆 crate 需要理由（C32） ==="
 mkdir -p crates/argus-bogus/src
 cat > crates/argus-bogus/Cargo.toml <<'EOF'

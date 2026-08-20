@@ -17,6 +17,16 @@ disallowed-types = [
   { path = "axum::extract::Path", reason = "会 decode，破坏透明性；改读 uri().path() 按字节切" },
   { path = "std::sync::mpsc::Sender",   reason = "同步 channel 会阻塞 async 任务，用 tokio::sync::mpsc" },
   { path = "std::sync::mpsc::Receiver", reason = "同上" },
+
+  # ⚠️ R03 R3/R5：hyper 默认的 connector 会拿 hostname 自己去解析一次。
+  # 一旦用上它，Target Policy 的逐 IP 判定就全废了 —— 判定用的是第一次解析
+  # 的结果，连接用的是第二次的，中间那个窗口正是 DNS rebinding
+  # （docs/13-ssrf-protection.md §6）。只能用 target::PinnedConnector。
+  #
+  # 这一条在 F14 装 hyper client 时才会真正被触发。它存在的意义就是：
+  # 那时候写代码的人是被 CI 拦住，而不是靠翻 spec 记起来。
+  { path = "hyper_util::client::legacy::connect::HttpConnector", reason = "会自己解析 hostname，绕过 R03 的逐 IP 判定；用 target::PinnedConnector" },
+  { path = "hyper_util::client::legacy::connect::dns::GaiResolver", reason = "同上：解析必须走 target::CheckedResolver，结果要经过策略判定" },
 ]
 
 # clippy::pedantic 在 argus-protocol 里是 warn + CI 的 -D warnings，

@@ -28,6 +28,17 @@ fail() {  # fail <条款> <说明> [可操作提示]
 }
 ok() { echo "  ok   $1"; }
 
+# 有些不变式来自 spec 而不是宪法（比如 R03 的 R11）。它们同样"能机械检查
+# 就不该靠 review 记着"，只是失败信息该指向 spec。
+fail_spec() {  # fail_spec <出处> <说明> [可操作提示]
+  {
+    echo ""
+    echo "FAIL [$1] $2"
+    [ $# -ge 3 ] && echo "      → $3"
+  } >&2
+  exit 1
+}
+
 # 取某个 crate 的全部传递依赖包名（仅 normal 边，含所有 feature）
 deps_of() {
   local out err
@@ -185,8 +196,29 @@ echo "=== [C27] 日志敏感字段 ==="
 python3 ci/check_log_fields.py crates || exit 1
 
 # ---------------------------------------------------------------------------
-# 这一条不是宪法条款，是 docs/20 §4.1 的约定。放在这里是因为它和上面几条
+# 下面两条不是宪法条款，是 spec / docs 的约定。放在这里是因为它们和上面几条
 # 一样：能机械检查的东西就不该靠 review 记着。
+
+# R03 R11：`allow_raw_proxy` + injected 凭据 + 空 allowlist = 调用方可以指定
+# 任意 target，而 Argus 往上面注入自己保管的供应商凭据 —— 等于把 key 送到
+# 对方服务器上（docs/13 §9）。
+#
+# 判定逻辑（check_raw_injected_combination）在 R03 就写好了，但**没有调用方**：
+# 现在还没有配置系统，`allow_raw_proxy` 这个字段根本不存在，所以危险组合
+# 构造不出来。这条检查就是那根引线 —— 谁第一个引入这个字段，谁必须同时把
+# 校验接上，否则 CI 红。
+echo "=== [R03 R11] allow_raw_proxy 必须接上 allowlist 校验 ==="
+if find crates -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
+   | xargs -0 grep -l 'allow_raw_proxy' 2>/dev/null | grep -q .; then
+  if ! find crates -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
+     | xargs -0 grep -h 'check_raw_injected_combination' 2>/dev/null \
+     | grep -qvE 'fn check_raw_injected_combination|^\s*(//|///)'; then
+    fail_spec "R03 R11" "引入了 allow_raw_proxy，却没有任何地方调用 check_raw_injected_combination" \
+      "见 specs/R03-target-policy/spec.md R11 与 docs/13-ssrf-protection.md §9：这个组合必须在配置校验期拒绝，不是运行期。"
+  fi
+fi
+ok "allow_raw_proxy 与 allowlist 校验一致"
+
 echo "=== [docs/20 §4.1] 测试命名 ==="
 python3 ci/check_test_names.py crates || exit 1
 
