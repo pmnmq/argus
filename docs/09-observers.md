@@ -91,7 +91,40 @@ observer_rules:
 ```
 
 匹配维度：`profile` / `host_suffix` / `path_prefix` / `method` / `content_type`。
-**首个命中生效**，没有权重也没有打分——可预测比聪明重要。
+多个条件之间是 **AND**。**首个命中生效**，没有权重也没有打分——可预测比聪明重要。
+
+`host_suffix` 匹配该域名自身与它的子域：`anthropic.com` 命中
+`api.anthropic.com`，但不命中 `notanthropic.com` 或 `anthropic.com.evil.net`。
+
+规则里的 `content_type` 指的是**请求**的，不是响应的。理由见 §4.2.1：前三级
+必须在发出请求之前就能判完，那时响应头还不存在。
+
+### 4.2.1 判定分两步
+
+图上是四级，实现上是两步，因为**第四级要等响应 header**：
+
+```text
+请求时      provisional()       规则 → Profile 默认值 → Raw 按 path 猜
+响应头到达  resolve_observer()  没定下来就按 Content-Type 兜底；
+                                定下来了则**只准收窄**
+```
+
+「只准收窄」是硬约束：收到 header 之后可以把一个语义 Observer 降成 Generic，
+但**不能换成另一个语义 Observer**——那会让已经解析出来的事件与后面的不一致。
+
+几条实现上必须说清楚的：
+
+- **图上第四级只挂在 Raw 分支下**，因为 Managed 总有 Profile 默认值兜着，
+  第二级就返回了。但「收窄」对 Managed 同样适用：Profile 说这是
+  `OpenAiChat`，而响应回来是 `text/html`，那就该降级而不是硬解。
+- **Raw 的猜测只看 path 前缀，不看 host。** 形状是比 host 强得多的信号：
+  `/v1/messages` 会出现在 `api.anthropic.com`、Bedrock、Vertex，以及任何
+  anthropic-compatible 的自建服务上（§4.3）。
+- **缺 `Content-Type` 时按「能承载」处理**，不降级。不少上游在流式响应上
+  根本不发这个头，一律降级会把正常的流一起降掉。
+- 「其他 Content-Type → 只记元数据」这一支由 `GenericJson` 实现：它在非
+  JSON 输入上退化成 `Malformed`，留下的正好只有字节数与形状，没有 key、
+  更没有 value。不需要再造一个 `MetadataOnly` 变体。
 
 ### 4.3 为什么 Observer 不能和 Provider 绑死
 
