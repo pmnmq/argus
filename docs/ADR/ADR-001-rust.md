@@ -3,7 +3,7 @@
 - **状态**：Accepted
 - **日期**：2026-08-19
 - **决策者**：架构组
-- **相关**：`14-rust-project-structure.md`、`12-reliability.md`
+- **相关**：`19-rust-project-structure.md`、`17-reliability.md`
 
 ---
 
@@ -33,15 +33,15 @@ Argus 是一个位于所有 AI 流量关键路径上的网关。它的核心特�
 
 **优点**
 - **无 GC**：p99 延迟不受 GC 暂停影响。这对 10k 并发 SSE 是决定性的——GC 语言在这个规模下的 p99 尖峰很难消除。
-- **零成本抽象与精确的内存控制**：`Bytes` 的引用计数让"一份字节两条路径"成为字面意义上的零拷贝（`05-streaming.md` §5.1）。这是整个 Tee 架构的物理基础。
-- **内存占用低**：无运行时开销、无对象头、无 GC 堆预留。每流 ~54 KB 的估算（`12-reliability.md` §4.1）在 GC 语言里很难达到。
+- **零成本抽象与精确的内存控制**：`Bytes` 的引用计数让"一份字节两条路径"成为字面意义上的零拷贝（`10-streaming.md` §5.1）。这是整个 Tee 架构的物理基础。
+- **内存占用低**：无运行时开销、无对象头、无 GC 堆预留。每流 ~54 KB 的估算（`17-reliability.md` §4.1）在 GC 语言里很难达到。
 - **所有权模型天然表达取消传播**：客户端断开 → future drop → 上游连接 drop → 上游取消。这条链在 Rust 里是自动的，在其他语言里要手写（且容易漏）。
 - **`Send`/`Sync` 在编译期防止并发 bug**：跨 task 共享的数据必须显式 `Arc`，误用直接编译失败。
 - **生态成熟**：Hyper 是最成熟的 Rust HTTP 实现之一；rustls 让静态构建可行；Tokio 是事实标准。
 - **单静态二进制**：musl + rustls → 无任何运行时依赖，直接满足部署目标。
 
 **缺点**
-- 开发速度慢于 Go/Java，尤其在异步 + 生命周期交织时（`05-streaming.md` §7.1 的借用式反序列化就是一例）。
+- 开发速度慢于 Go/Java，尤其在异步 + 生命周期交织时（`10-streaming.md` §7.1 的借用式反序列化就是一例）。
 - `Pin`/`Poll` 的手写实现（`TeeBody`）有一定门槛。
 - 人才池小于 Go/Java。
 - 编译时间需要主动管理（`14` §8）。
@@ -121,7 +121,7 @@ Argus 是一个位于所有 AI 流量关键路径上的网关。它的核心特�
 
 - Tee 架构的"零拷贝"是字面意义的，不是近似（`Bytes::clone` = 一次原子加）。
 - 取消传播、资源清理由 drop 语义自动保证。
-- 内存与延迟可以精确核算（`12-reliability.md` §4），而不是"看 GC 心情"。
+- 内存与延迟可以精确核算（`17-reliability.md` §4），而不是"看 GC 心情"。
 - 单静态二进制，部署形态覆盖从 NAS 到 K8s。
 - `argus-protocol` 可以在编译期禁止 IO 依赖（`14` §7.2），这在动态语言里不可能。
 
@@ -129,9 +129,9 @@ Argus 是一个位于所有 AI 流量关键路径上的网关。它的核心特�
 
 | 负面 | 缓解 |
 |------|------|
-| 开发速度慢 | 严格控制 MVP 范围（`16-mvp-roadmap.md` §4.2）；`argus-protocol` 的纯函数设计让最复杂的部分最容易测试与迭代 |
+| 开发速度慢 | 严格控制 MVP 范围（`22-mvp-roadmap.md` §4.2）；`argus-protocol` 的纯函数设计让最复杂的部分最容易测试与迭代 |
 | `Pin`/`Body` 手写实现的门槛 | 只有 `TeeBody` 与 `GatedBody` 两处，其余用 Axum/Tower 的高层 API |
-| 生命周期与借用式解析的复杂度 | `05-streaming.md` §7.1 明确了"借用到 Accumulator 就立刻拷贝"的边界，不让借用跨 await |
+| 生命周期与借用式解析的复杂度 | `10-streaming.md` §7.1 明确了"借用到 Accumulator 就立刻拷贝"的边界，不让借用跨 await |
 | 编译时间 | `codegen-units=4`、依赖隔离、mold 链接器（`14` §8） |
 | panic = abort 的陷阱 | workspace profile 强制 unwind + CI 检查 + 三层隔离（`01` §9） |
 | 人才池 | 代码风格保守（禁 unsafe、禁 unwrap、少用高级 trait 技巧） |

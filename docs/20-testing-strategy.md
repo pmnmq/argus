@@ -1,7 +1,7 @@
-# 15 · 测试策略
+# 20 · 测试策略
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 前置：`04-protocols.md`（协议坑）、`06-observation-model.md`（映射表）
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 前置：`09-observers.md`（协议坑）、`11-observation-model.md`（映射表）
 
 ---
 
@@ -19,7 +19,7 @@ Argus 的正确性风险集中在两个地方：
 ## 2. Goals
 
 - G-T1 协议兼容性由录制的真实字节驱动，不依赖网络。
-- G-T2 解析器对任意字节切分方式产生完全相同的结果（`05-streaming.md` G-S5 的验证）。
+- G-T2 解析器对任意字节切分方式产生完全相同的结果（`10-streaming.md` G-S5 的验证）。
 - G-T3 架构不变式（依赖方向、无界 channel、panic 策略）由 CI 自动检查。
 - G-T4 官方 SDK 作为端到端 oracle，但不是 CI 的必需依赖。
 - G-T5 新增 provider / 新增协议事件的测试成本低（加一个 fixture 目录即可）。
@@ -122,7 +122,78 @@ golden 用例名由 fixture 目录名生成（见 §5.1），目录名另有约�
 
 ---
 
-## 5. Golden Test 系统（核心）
+## 5. 路由与透明性测试（v2 新增）
+
+新的路由模型把风险从"协议解析"扩展到了"URL 解析"与"字节保真"。这两类的
+失败方式都是**静默的**，必须有独立测试。
+
+### 5.1 URL 解析矩阵
+
+| 类别 | 用例 |
+|---|---|
+| Managed 拼接 | base_url 带/不带尾斜杠 × path 带/不带前导斜杠；base_url 自带前缀 |
+| 空 path | `/provider/x` → 400；`/provider/x/` → 转发到根 |
+| Query 保真 | `?a=1&b=a%2Bb&empty=&flag`（含空值与无值参数） |
+| 百分号编码 | `%2F` / `%20` / 中文 / 已编码的 `%25` |
+| 双斜杠 | `/provider/x/v1//foo` 不被折叠 |
+| Raw 直接形式 | `https` / `http` / 带端口 / IPv6 方括号 |
+| Raw 分段形式 | 同上，且与直接形式产出**同一个** target |
+| Raw 非法 | 缺 scheme / 未知 scheme / 空 authority → 400，**不猜测补全** |
+| Profile 名 | 合法字符集边界；`%6Fpenai` 这类绕过写法必须 400 |
+
+### 5.2 透明性测试（§46 的硬要求）
+
+> 未启用 Credential/Header Rewrite 时，上游收到的 body 必须与客户端发送的
+> body **逐字节相同**。
+
+测法：MockProvider 记录收到的**原始字节**，与客户端发出的原始字节
+`assert_eq`。**不是**比较反序列化后的 JSON —— 那会掩盖 key 顺序、
+数字表示（`1.0` vs `1`）、Unicode 转义形式的差异。
+
+必测：未知 JSON 字段、供应商特有字段、嵌套很深的未知结构、数字精度、
+key 顺序、非 UTF-8 字节（多模态附件）、空 body、超大 body。
+
+### 5.3 Header 策略测试
+
+| 断言 | 说明 |
+|---|---|
+| hop-by-hop 全删 | 含 `Connection` 里**列出**的自定义名 |
+| 客户端凭据被删 | `authorization` / `x-api-key` / `api-key` / `x-goog-api-key` |
+| Profile 凭据被注入 | 且标记为 sensitive |
+| `Host` 被重写 | 为 target 的 authority |
+| 其余 header 原样 | 包括未知的 `x-*` |
+| Passthrough 模式 | 客户端凭据**不**删，Argus 凭据**不**注入 |
+
+### 5.4 SSRF 测试
+
+| 场景 | 期望 |
+|---|---|
+| 解析到 `127.0.0.1` / RFC1918 / `169.254.169.254` | 403 `target_denied` |
+| 显式 allow 后的同一目标 | 放行 |
+| 多值 A 记录含一个内网 IP | **整体**拒绝 |
+| DNS rebinding（两次解析结果不同） | 连接时检出，中止 + 计数 |
+| Redirect 到内网 | 默认不跟随 → 3xx 透传；开启跟随时第二跳被拒 |
+| 跨 origin redirect | 凭据 header 被剥除 |
+| 拒绝类错误 | 不同原因返回**同一个** 403，body 不含 IP |
+
+### 5.5 前置组件测试（不能只在 `cargo run` 下验证）
+
+`04-raw-proxy-mode.md` §6 指出直接形式会被 nginx 默认折叠。必须有一组
+**容器化**集成测试，把 Argus 放到 nginx / Traefik 后面跑同一组 URL 用例：
+
+```text
+client → nginx(merge_slashes on)  → argus   直接形式应失败、分段形式应成功
+client → nginx(merge_slashes off) → argus   两种都成功
+client → traefik                  → argus   两种都成功（待验证）
+client → argus 直连                          两种都成功（已实测）
+```
+
+这一组**不进默认 CI**（需要 Docker），但必须在发布前跑，结果回填到
+`18-deployment.md` §5.9 的表格。
+
+---
+
+## 6. Golden Test 系统（核心）
 
 ### 5.1 目录结构
 
@@ -216,7 +287,7 @@ fn golden(#[files("tests/fixtures/**/meta.toml")] path: PathBuf) {
     // 对每种切分方式都跑一遍 —— 这是 G-T2 的核心
     for split in SplitStrategy::all() {
         let mut framer = SseFramer::new();
-        let mut parser = ProtocolParser::for_protocol(case.protocol);
+        let mut parser = ProtocolObserver::for_protocol(case.protocol);
         let mut acc    = Accumulator::new(&case.request_meta);
         let mut events = Vec::new();
 
@@ -285,7 +356,7 @@ argus fixtures export --request-id req_01J... --redact --out tests/fixtures/...
 
 途径 ③ 特别有价值：生产中遇到的怪异情况可以直接变成回归测试。
 
-**脱敏是必须的**：fixture 会进 Git，必须移除真实的 API key、用户内容、org ID。`--redact` 用与 `08-security.md` §9 相同的规则集。
+**脱敏是必须的**：fixture 会进 Git，必须移除真实的 API key、用户内容、org ID。`--redact` 用与 `12-security.md` §9 相同的规则集。
 
 ### 5.6 非流式与流式的交叉验证
 
@@ -302,11 +373,11 @@ fn stream_and_non_stream_agree() {
 }
 ```
 
-这验证了 `06-observation-model.md` §5.4 的 `SyntheticEventGen` 与流式路径的等价性——两条完全不同的代码路径产出相同结果，是很强的正确性信号。
+这验证了 `11-observation-model.md` §5.4 的 `SyntheticEventGen` 与流式路径的等价性——两条完全不同的代码路径产出相同结果，是很强的正确性信号。
 
 ---
 
-## 6. Property / Fuzz 测试
+## 7. Property / Fuzz 测试
 
 ### 6.1 Framer 的不变式（proptest）
 
@@ -387,7 +458,7 @@ cargo fuzz run parser_responses
 
 ---
 
-## 7. Mock Provider
+## 8. Mock Provider
 
 一个可编程的本地 SSE 服务器，是 E2E 与压测的公共设施。
 
@@ -431,7 +502,7 @@ pub enum Pacing {
 
 ---
 
-## 8. 官方 SDK 作为 Oracle（G-T4）
+## 9. 官方 SDK 作为 Oracle（G-T4）
 
 ### 8.1 SDK 的三个用途
 
@@ -443,7 +514,7 @@ pub enum Pacing {
 | **② 消费验证** | 官方 SDK 作为客户端调 Argus（后接 Mock Provider），验证 SDK 能正常解析 | ✅ 是 |
 | **③ Schema 对照** | 从 SDK 的类型定义（Python 的 pydantic / TS 的 d.ts）核对我们的 IR 映射是否遗漏字段 | ⚠️ 半自动 |
 
-**SDK 绝不进入 Argus 的运行时依赖**（`ADR/ADR-002` 详述）。
+**SDK 绝不进入 Argus 的运行时依赖**（`ADR/ADR-008` 详述）。
 
 ### 8.2 用途 ②：SDK 消费验证（最有价值）
 
@@ -496,7 +567,7 @@ def test_streaming_tool_use(argus_url, mock_provider):
 
 ---
 
-## 9. 架构不变式检查（G-T3）
+## 10. 架构不变式检查（G-T3）
 
 在 CI 中自动化，防止架构逐渐腐化。
 
@@ -542,7 +613,7 @@ ci/check-migration-compat.sh    # 用上一个 release 的二进制跑冒烟测�
 
 ---
 
-## 10. 集成测试
+## 11. 集成测试
 
 用 `testcontainers` 起真实的 PostgreSQL（不用 mock DB——SQL 的行为差异是真实的 bug 来源）。
 
@@ -593,9 +664,9 @@ async fn pg_outage_falls_back_to_spool() {
 
 ---
 
-## 11. 性能测试
+## 12. 性能测试
 
-见 `11-observability.md` §6.4 的方法论。测试代码位于 `benches/` 与 `tests/perf/`。
+见 `16-opentelemetry.md` §6.4 的方法论。测试代码位于 `benches/` 与 `tests/perf/`。
 
 ```rust
 // benches/framer.rs
@@ -614,7 +685,7 @@ fn bench_framer(c: &mut Criterion) {
 
 ---
 
-## 12. Contract Test（真实 API，非 CI）
+## 13. Contract Test（真实 API，非 CI）
 
 ```bash
 # 手动或每周定时，需要真实的 API key
@@ -637,7 +708,7 @@ ARGUS_CONTRACT_TEST=1 \
 
 ---
 
-## 13. 覆盖率目标
+## 14. 覆盖率目标
 
 | crate | 行覆盖 | 分支覆盖 | 说明 |
 |-------|--------|---------|------|
@@ -649,7 +720,7 @@ ARGUS_CONTRACT_TEST=1 \
 
 用 `cargo-llvm-cov`。**覆盖率是信号不是目标**——`argus-protocol` 的 90% 有意义（它是纯函数，容易测），`argus-server` 强求高覆盖率只会产出无意义的测试。
 
-**特别要求**：`06-observation-model.md` §5 映射表中的**每一行**都必须有对应的 golden case。用 `meta.toml` 的 `covers` 字段追踪：
+**特别要求**：`11-observation-model.md` §5 映射表中的**每一行**都必须有对应的 golden case。用 `meta.toml` 的 `covers` 字段追踪：
 
 ```bash
 cargo test --test coverage_matrix
@@ -660,7 +731,7 @@ cargo test --test coverage_matrix
 
 ---
 
-## 14. Failure Modes
+## 15. Failure Modes
 
 | 场景 | 处理 |
 |------|------|
@@ -674,7 +745,7 @@ cargo test --test coverage_matrix
 
 ---
 
-## 15. Trade-offs
+## 16. Trade-offs
 
 | 选择 | 收益 | 代价 |
 |------|------|------|
@@ -687,7 +758,7 @@ cargo test --test coverage_matrix
 
 ---
 
-## 16. Alternatives Considered
+## 17. Alternatives Considered
 
 **A. 用 VCR/cassette 风格的 HTTP 录制回放库。**
 Rust 生态里没有成熟的（`wiremock` 是 mock 不是录制）。且我们需要的是**字节级**回放（含精确的 SSE 分隔符与分片），通用库通常在更高层次工作。**自建**，成本不高。
@@ -706,7 +777,7 @@ SQL 方言、约束、事务语义的差异是真实 bug 来源。**否决**，�
 
 ---
 
-## 17. Decision
+## 18. Decision
 
 1. **Golden test 是测试体系的核心**：录制真实字节 → 解析 → snapshot（`insta`）。
 2. **每个 golden case 用 ~30 种切分策略跑一遍**（含逐字节），结果必须完全一致。这是 parser 正确性的主要保障。
@@ -720,7 +791,7 @@ SQL 方言、约束、事务语义的差异是真实 bug 来源。**否决**，�
 
 ---
 
-## 18. Open Questions
+## 19. Open Questions
 
 | # | 问题 | 现状 | 何时决定 |
 |---|------|------|---------|

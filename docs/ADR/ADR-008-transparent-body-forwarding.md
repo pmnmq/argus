@@ -1,8 +1,8 @@
-# ADR-002 · 透明字节代理，不依赖官方 SDK
+# ADR-008 · 透明字节转发
 
 - **状态**：Accepted
 - **日期**：2026-08-19
-- **相关**：`04-protocols.md`、`05-streaming.md`、`15-testing-strategy.md` §8
+- **相关**：`09-observers.md`、`10-streaming.md`、`20-testing-strategy.md` §8
 
 ---
 
@@ -135,13 +135,13 @@ class RecordingTransport(httpx.HTTPTransport):
 1. **Argus 的转发对 SDK 透明** —— SDK 能正常解析、正常累积、正常抛出预期的异常。
 2. **Argus 的观测与 SDK 的解析一致** —— 我们的 Accumulator 累出的 tool arguments、finish_reason、usage 应与 SDK 的 `get_final_message()` 完全一致。
 
-第 2 点是核心价值：**用权威实现交叉验证我们的解析器**。这比我们自己写断言可信得多。详见 `15-testing-strategy.md` §8.2。
+第 2 点是核心价值：**用权威实现交叉验证我们的解析器**。这比我们自己写断言可信得多。详见 `20-testing-strategy.md` §8.2。
 
 CI 中不需要网络（Mock Provider 在本地）。
 
 ### 角色 3 · Schema 对照（半自动）
 
-从 SDK 的类型定义（Python pydantic 模型 / TS 的 `.d.ts`）提取字段清单，与 `06-observation-model.md` §5 的映射表对照，找出我们遗漏的字段。
+从 SDK 的类型定义（Python pydantic 模型 / TS 的 `.d.ts`）提取字段清单，与 `11-observation-model.md` §5 的映射表对照，找出我们遗漏的字段。
 
 ### 明确的边界
 
@@ -166,7 +166,7 @@ CI 中不需要网络（Mock Provider 在本地）。
 | 必须自己实现协议解析 | 只在**观测层**需要，且解析失败不影响转发；用 golden test 保证正确性 |
 | 无法做任何请求改写（如注入 system prompt） | 这是刻意的非目标；若将来需要，作为独立的、显式开启的功能，且明确标注会破坏 prompt cache |
 | 无法自动适配 provider 的破坏性变更 | 但 SDK 方案同样无法（SDK 也要发新版）；且我们的 `Unknown` 指标能更早发现 |
-| 错误响应需要自己按协议渲染 | `02-data-plane.md` §9 的 `ErrorRenderer`，每协议一个，代码量小 |
+| 错误响应需要自己按协议渲染 | `06-data-plane.md` §9 的 `ErrorRenderer`，每协议一个，代码量小 |
 
 ### 边界情况：Bedrock
 
@@ -174,7 +174,7 @@ CI 中不需要网络（Mock Provider 在本地）。
 
 这属于**帧格式转换**而非**协议语义转换**：event 的 JSON payload 逐字保留，只是外层容器变了。语义无损，但字节不再等价。
 
-处理：在 `04-protocols.md` §9.2 明确标记为特殊路径；`Framer` 与 `ProtocolParser` 从第一天起就是分离的 trait，让 `EventStreamFramer` 可以复用 `AnthropicMessagesParser`。
+处理：在 `09-observers.md` §9.2 明确标记为特殊路径；`Framer` 与 `ProtocolObserver` 从第一天起就是分离的 trait，让 `EventStreamFramer` 可以复用 `AnthropicMessagesParser`。
 
 ---
 

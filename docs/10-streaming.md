@@ -1,7 +1,7 @@
-# 05 · 流式架构
+# 10 · 流式架构
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 本文是 Argus 最核心的设计文档。前置：`02-data-plane.md` §5（Tee）。
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 本文是 Argus 最核心的设计文档。前置：`06-data-plane.md` §5（Tee）。
 
 ---
 
@@ -48,7 +48,7 @@ flowchart LR
 
     CH{{"mpsc bounded<br/>TeeChunk"}}
     FR["SseFramer<br/>BytesMut 拼接"]
-    PP["ProtocolParser"]
+    PP["ProtocolObserver"]
     AC["Accumulator"]
     SG["StreamGuard"]
     SK["AuditSink"]
@@ -84,7 +84,7 @@ flowchart LR
 
 真正不可避免的拷贝只有 ⑦（TLS 加密必须写到新缓冲）。**从 provider 到 client，我们自己没有引入任何一次额外的 memcpy。**
 
-对比：如果先 `String::from_utf8(bytes)` 再 `serde_json::from_str` 再 `serde_json::to_vec` 再发出，同一份数据会被拷贝 3 次并产生 O(字段数) 次堆分配。这就是**不用官方 SDK 的核心原因之一**（见 `ADR/ADR-002`）。
+对比：如果先 `String::from_utf8(bytes)` 再 `serde_json::from_str` 再 `serde_json::to_vec` 再发出，同一份数据会被拷贝 3 次并产生 O(字段数) 次堆分配。这就是**不用官方 SDK 的核心原因之一**（见 `ADR/ADR-008`）。
 
 ### 5.2 SseFramer 的 fast path
 
@@ -140,7 +140,7 @@ fn find_frame_end(buf: &[u8]) -> Option<usize> {
 }
 ```
 
-> 注意上面这个实现有一个 bug 需要在实现时修正：三次独立 find 会返回「最早出现的 `\n\n`」而不是「最早出现的任意分隔符」。正确做法是一次扫描同时匹配三种模式，取最小位置。这里保留是为了标记这个易错点——`15-testing-strategy.md` §4 有对应的 golden case。
+> 注意上面这个实现有一个 bug 需要在实现时修正：三次独立 find 会返回「最早出现的 `\n\n`」而不是「最早出现的任意分隔符」。正确做法是一次扫描同时匹配三种模式，取最小位置。这里保留是为了标记这个易错点——`20-testing-strategy.md` §4 有对应的 golden case。
 
 ### 5.4 字段解析不做 UTF-8 校验
 
@@ -343,7 +343,7 @@ Framer::push → &mut FrameSink → Parser::on_frame → &mut EventSink → Accu
 
 在 4 核机器上，观测消耗约 10% CPU。可接受，但这也解释了为什么 `Pressure::Critical` 时要降级到 `Off`——如果 frame 速率翻 5 倍，观测就会吃掉 2 核。
 
-> 这是估算，不是实测。`15-testing-strategy.md` §7 定义了验证方法。
+> 这是估算，不是实测。`20-testing-strategy.md` §7 定义了验证方法。
 
 ---
 
@@ -391,7 +391,7 @@ tee_byte_budget        = "256KiB"  # 在途字节
 | 10,000 | ~340 MB | ~200 MB | **~540 MB** | ~700 MB |
 | 50,000 | ~1.7 GB | ~1 GB | **~2.7 GB** | ~3.5 GB |
 
-推导（每流 typical，逐项核算见 `12-reliability.md` §4.1，该表为权威版本）：
+推导（每流 typical，逐项核算见 `17-reliability.md` §4.1，该表为权威版本）：
 
 | 路径 | 组成 | 小计 |
 |------|------|------|
@@ -399,14 +399,14 @@ tee_byte_budget        = "256KiB"  # 在途字节
 | 观测 | tee channel 4 + framer 4 + parser 1 + accumulator 正文 8 + accumulator 结构 2 + task 1 | **~20 KB** |
 | 合计 | | **~54 KB** |
 
-> 上表的"合计"列是**逻辑占用**。`12-reliability.md` §4.2 的 RSS 估算在此基础上乘 1.3× 的分配器碎片系数，因此那里的数字（10k 流 ~700 MB）高于本表直接相乘的结果（~540 MB）。**以 `12` 的数字为准做容量规划。**
+> 上表的"合计"列是**逻辑占用**。`17-reliability.md` §4.2 的 RSS 估算在此基础上乘 1.3× 的分配器碎片系数，因此那里的数字（10k 流 ~700 MB）高于本表直接相乘的结果（~540 MB）。**以 `12` 的数字为准做容量规划。**
 
 **结论**：
 - 4C8G 上 10,000 并发流是舒适的（~0.6 GB 稳态，峰值 1.2 GB，留出大量余量给 PG 连接池与 sink 批缓冲）。
 - 50,000 需要 8 GB 以上，且要求：`ObserveMode` 降到 `Lite`、`max_accumulated_bytes` 调低、上游必须 HTTP/2。
-- 详细的容量规划表见 `12-reliability.md` §8。
+- 详细的容量规划表见 `17-reliability.md` §8。
 
-> 这些是**基于组件已知开销的估算**，不是压测结果。压测方法见 `15-testing-strategy.md` §7，实测数据回填到 `11-observability.md` §6。
+> 这些是**基于组件已知开销的估算**，不是压测结果。压测方法见 `20-testing-strategy.md` §7，实测数据回填到 `16-opentelemetry.md` §6。
 
 ### 8.4 HTTP/2 上游复用的重要性
 

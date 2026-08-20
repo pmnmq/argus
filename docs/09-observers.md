@@ -1,8 +1,8 @@
-# 04 · 协议层
+# 09 · Observer
 
-> 状态：Draft v1 · 最后更新 2026-08-19
+> 状态：Draft v2 · 最后更新 2026-08-20
 > 本文定义 Argus 认识的线上协议、endpoint 映射、header 变换规则，以及「Protocol 与 Provider 解耦」的具体含义。
-> SSE 字节层处理见 `05-streaming.md`；事件语义映射见 `06-observation-model.md`。
+> SSE 字节层处理见 `10-streaming.md`；事件语义映射见 `11-observation-model.md`。
 
 ---
 
@@ -33,60 +33,90 @@
 
 ---
 
-## 4. 两个正交维度
+## 4. Observer 是怎么选出来的
 
-### 4.1 Protocol
+**Observer 与路由无关。** 路由已经在 P1 由 URL 决定完了
+（`02-routing-model.md`）；Observer 回答的是另一个问题：
 
-`Protocol` 描述**线上字节的形状**：请求 JSON 结构、响应 JSON 结构、流式帧格式。
+> 这条流里的字节，该用哪套语义去理解？
+
+### 4.1 `ObserverKind`
 
 ```rust
 #[non_exhaustive]
-pub enum Protocol {
-    OpenAiChat,              // POST /v1/chat/completions
-    OpenAiResponses,         // POST /v1/responses
-    AnthropicMessages,       // POST /v1/messages
+pub enum ObserverKind {
+    OpenAiChat,              // /v1/chat/completions 形状
+    OpenAiResponses,         // /v1/responses 形状
+    AnthropicMessages,       // /v1/messages 形状
     GeminiGenerateContent,   // 预留，MVP 不实现
-    BedrockInvoke,           // 预留，非 SSE（见 §9.2）
+    /// 认不出具体协议，但是 SSE：切帧、记 raw、统计事件数，不解语义
+    GenericSse,
+    /// 认不出协议，非流式 JSON：记 raw + 顶层字段名，不解语义
+    GenericJson,
 }
 ```
 
-`Protocol` 决定：
-- Argus 用哪个 `ProtocolParser`
-- Argus 用哪个 `ErrorRenderer`
-- 流式帧是不是 SSE
+最后两个是新增的，也是关键的：**认不出来不等于不观测**。
+`GenericSse` / `GenericJson` 保证 Raw 模式和未知供应商仍然有基础观测
+（字节数、事件数、耗时、状态码、raw 留存），而不是一片空白。
 
-### 4.2 ProviderKind
+### 4.2 三级判定
 
-`ProviderKind` 描述**如何连接与鉴权**：URL 构造、认证 header、必需的额外 header、错误码方言。
-
-```rust
-#[non_exhaustive]
-pub enum ProviderKind {
-    OpenAi,
-    Anthropic,
-    AzureOpenAi,
-    Bedrock,
-    Vertex,
-    /// 任何声称兼容 OpenAI Chat 的自建/第三方服务
-    OpenAiCompatible,
-    /// 任何声称兼容 Anthropic Messages 的服务
-    AnthropicCompatible,
-}
+```mermaid
+flowchart TD
+    A[请求] --> B{有 observer_rules 命中?}
+    B -->|是| R1[用规则指定的 ObserverKind]
+    B -->|否| C{Managed 模式?}
+    C -->|是| R2[用 Profile 的 observer 默认值]
+    C -->|否 Raw| D{target host + path 能匹配已知形状?}
+    D -->|是| R3[用匹配到的 ObserverKind]
+    D -->|否| E{响应 Content-Type}
+    E -->|text/event-stream| R4[GenericSse]
+    E -->|application/json| R5[GenericJson]
+    E -->|其他| R6[只记元数据]
 ```
 
-### 4.3 组合矩阵
+`observer_rules` 是 Control Plane 里的一张有序规则表：
 
-| ProviderKind | 支持的 Protocol | 认证 | 备注 |
-|---|---|---|---|
-| `OpenAi` | `OpenAiChat`, `OpenAiResponses` | `Authorization: Bearer` | |
-| `AzureOpenAi` | `OpenAiChat`, `OpenAiResponses` | `api-key: <k>` | URL 含 deployment + `api-version` |
-| `OpenAiCompatible` | `OpenAiChat`（`OpenAiResponses` 需显式声明） | `Authorization: Bearer`（可配置 header 名） | DeepSeek / Qwen / vLLM / Ollama / Groq… |
-| `Anthropic` | `AnthropicMessages` | `x-api-key: <k>` + `anthropic-version` | |
-| `AnthropicCompatible` | `AnthropicMessages` | 可配置 | |
-| `Bedrock` | `AnthropicMessages`（经 `invoke-with-response-stream`） | SigV4 | 流式**不是 SSE**，见 §9.2 |
-| `Vertex` | `AnthropicMessages`（`:streamRawPredict`）、`GeminiGenerateContent` | OAuth2 Bearer | |
+```yaml
+observer_rules:
+  # Profile 默认是 openai-chat，但 /v1/responses 要用另一个 observer
+  - match: { profile: "openai-prod", path_prefix: "/v1/responses" }
+    observer: openai-responses
+  # 任何 host 上的 /v1/messages 都按 Anthropic 理解
+  - match: { path_prefix: "/v1/messages" }
+    observer: anthropic-messages
+  - match: { host_suffix: "api.anthropic.com" }
+    observer: anthropic-messages
+```
 
-> 这张表就是 G-P1 的具体体现：`AnthropicMessages` 这一个协议横跨 4 种 provider。
+匹配维度：`profile` / `host_suffix` / `path_prefix` / `method` / `content_type`。
+**首个命中生效**，没有权重也没有打分——可预测比聪明重要。
+
+### 4.3 为什么 Observer 不能和 Provider 绑死
+
+一个 Profile 可以同时提供多种形状的 endpoint：
+
+```text
+openai-prod  /v1/chat/completions  → OpenAiChat
+openai-prod  /v1/responses         → OpenAiResponses
+openai-prod  /v1/embeddings        → GenericJson
+```
+
+反过来，同一种形状横跨多个 Profile：`AnthropicMessages` 会出现在
+`anthropic-prod`、`bedrock-*`、`vertex-*`、以及任何 anthropic-compatible 的自建服务上。
+
+把 Observer 挂在 Profile 上（一个 Profile 只能一种）会立刻在第一个
+多 endpoint 的供应商上崩掉。所以 Profile 上的 `observer` 只是**默认值**，
+`observer_rules` 才是精确控制。
+
+### 4.4 选错了会怎样
+
+不会怎样。Observer 选错的后果是**观测数据降级**：解析不出事件，
+`unknown` 计数上升，interaction 标 `Integrity::Degraded`。
+
+**主链路一个字节都不受影响**——它根本不看 Observer 的输出。
+这是 `05-transparent-proxy.md` §4.2 那条分工的直接好处。
 
 ---
 
@@ -114,7 +144,7 @@ data: {"id":"chatcmpl-x","choices":[],"usage":{"prompt_tokens":10,"completion_to
 data: [DONE]
 ```
 
-对解析器有影响的坑（每一条都有对应的 golden test，见 `15-testing-strategy.md`）：
+对解析器有影响的坑（每一条都有对应的 golden test，见 `20-testing-strategy.md`）：
 
 | # | 坑 | 处理 |
 |---|---|---|
@@ -210,65 +240,40 @@ data: {"type":"message_stop"}
 
 ---
 
-## 6. Endpoint 映射与 URL 构造
+## 6. Endpoint 与 URL：不由本文档决定
 
-### 6.1 入站路由表
+v1 在这里有一张「`ProviderKind` × `Protocol` → URL 模板」的表。**它已删除。**
 
-| Method | Path | Protocol | 是否流式可能 |
-|---|---|---|---|
-| POST | `/v1/chat/completions` | `OpenAiChat` | ✅ |
-| POST | `/v1/responses` | `OpenAiResponses` | ✅ |
-| POST | `/v1/messages` | `AnthropicMessages` | ✅ |
-| POST | `/v1/messages/count_tokens` | `AnthropicMessages` | ❌ |
-| GET | `/v1/models` | — | ❌ |
-| GET | `/v1/models/{id}` | — | ❌ |
+新模型下上游 URL 完全由 URL 里的 path 决定：客户端打
+`/provider/openai-prod/v1/responses`，Argus 就转发到 `{base_url}/v1/responses`。
+Azure 那种 `deployments/{name}?api-version=` 的形状也一样——客户端怎么写就怎么转。
+拼接规则见 `03-managed-provider-mode.md` §5。
 
-### 6.2 出站 URL 构造
+> 这张表消失本身就是新路由模型的收益：Argus 不再需要知道每家供应商的
+> endpoint 长什么样，也就不会因为某家改了路径而滞后。
 
-由 `ProviderKind` + `Protocol` + endpoint 配置共同决定：
+### 6.1 `/v1/models` 不再由 Argus 合成
 
-| ProviderKind | Protocol | URL 模板 |
-|---|---|---|
-| `OpenAi` / `OpenAiCompatible` | `OpenAiChat` | `{base}/v1/chat/completions` |
-| `OpenAi` | `OpenAiResponses` | `{base}/v1/responses` |
-| `AzureOpenAi` | `OpenAiChat` | `{base}/openai/deployments/{deployment}/chat/completions?api-version={ver}` |
-| `AzureOpenAi` | `OpenAiResponses` | `{base}/openai/v1/responses?api-version={ver}` |
-| `Anthropic` / `AnthropicCompatible` | `AnthropicMessages` | `{base}/v1/messages` |
-| `Vertex` | `AnthropicMessages` | `{base}/v1/projects/{p}/locations/{l}/publishers/anthropic/models/{m}:streamRawPredict` |
-| `Bedrock` | `AnthropicMessages` | `{base}/model/{modelId}/invoke-with-response-stream` |
+v1 让 `/v1/models` 返回 Argus 自己的逻辑模型清单。**这个行为已删除**，
+因为它依赖模型目录，而模型目录已经不存在了（`02-routing-model.md` §3）。
 
-Azure 的 `{deployment}` 来自 `provider_models.deployment_name`——这正是「同一逻辑模型在不同 provider 上有不同标识」的例子。
+现在 `GET /provider/{name}/v1/models` 就是一次普通的透明转发，
+客户端拿到的是**那个 provider 真实的模型列表**。
 
-### 6.3 `/v1/models` 的特殊性
+这反而更正确：客户端问的是"这个 provider 有什么模型"，Argus 没有资格替它回答，
+而且任何合成的答案都会过期。
 
-`/v1/models` 是**唯一由 Argus 合成响应**的 endpoint。它不转发到任何 provider，而是把 Control Plane 的逻辑模型列表投影成调用方期望的格式。
+> 若将来需要"我这把 Key 能访问哪些 provider"，那是 Control Plane 的
+> `GET /admin/v1/profiles` ，不是 `/v1/models`。两者是不同的问题。
 
-这不违反透明代理原则，因为：**它返回的本来就是 Argus 自己的资源清单**，不是任何单一 provider 的清单。转发给某个 provider 反而是错的（客户端会看到自己无权访问的模型）。
+### 6.2 Provider 方言（dialect）
 
-响应格式按 `Accept` 与调用路径推断，默认 OpenAI 形状：
-
-```jsonc
-// GET /v1/models
-{ "object": "list", "data": [
-  { "id": "claude-sonnet", "object": "model", "created": 0, "owned_by": "argus",
-    // Argus 扩展，放在 x- 前缀下，不污染标准字段
-    "x-argus": { "protocol": "anthropic_messages",
-                 "capabilities": { "streaming": true, "tools": true, "vision": true,
-                                   "reasoning": true, "context_length": 200000 },
-                 "providers": ["anthropic-prod", "bedrock-us-east-1"] } }
-]}
-```
-
-**过滤**：只返回当前 API Key 的 `allowed_models` 交集。这让客户端的模型选择器天然只显示有权访问的模型。
-
-### 6.4 Provider 方言（dialect）
-
-某些 OpenAI-compatible provider 有小的偏差。用**声明式方言配置**而非代码分支处理：
+某些 OpenAI-compatible provider 在**响应形状**上有小偏差。用声明式配置而非代码分支：
 
 ```toml
 [[providers]]
 name = "deepseek"
-kind = "openai_compatible"
+provider_type = "deepseek"
 base_url = "https://api.deepseek.com"
 
 [providers.dialect]
@@ -278,16 +283,18 @@ reasoning_field = "reasoning_content"
 supports_stream_usage = true
 # 是否会发送 data: [DONE]
 emits_done_sentinel = true
-# 认证 header 名（少数自建服务用别的）
-auth_header = "Authorization"
-auth_scheme = "Bearer"
 ```
 
-方言**只影响 ProtocolParser 的观测行为，绝不改写转发的字节**。这一点必须严格遵守——方言配置错了顶多是观测数据不准，不会破坏代理。
+**方言只影响 Observer 的解析行为，绝不改写转发的字节。**
+这条必须严格遵守——方言配置错了顶多是观测数据不准，不会破坏代理。
+
+注意方言里**没有** `auth_header` / `auth_scheme` 了：那属于 Profile 的
+`credential.header` / `credential.format`（`08-provider-profiles.md` §5），
+是接入配置不是观测配置。两者混在一起会让"改错方言导致请求失败"成为可能。
 
 ---
 
-## 7. 跨协议调用：明确不做
+## 7. 跨协议转换：明确不做
 
 ### 7.1 决定
 
@@ -300,7 +307,7 @@ auth_scheme = "Bearer"
 }}
 ```
 
-Control Plane 在配置时就会拒绝这种绑定（见 `03-control-plane.md` §5.2），所以运行时遇到它意味着配置漂移。
+Control Plane 在配置时就会拒绝这种绑定（见 `07-control-plane.md` §5.2），所以运行时遇到它意味着配置漂移。
 
 ### 7.2 为什么不做
 
@@ -352,7 +359,7 @@ struct RequestProbe<'a> {
 - `stream` 缺失 → 按协议默认（三者都默认 false）。
 - 其他一切交给 provider 判断。provider 返回的 400 原样透传给客户端，**包括 provider 的原始错误信息**——这比 Argus 自己编一个更有用。
 
-> 例外：PreflightGuard 需要更深的解析（提取 system/user message、tool 定义）。它使用**独立的、容错的**提取器（见 `08-security.md` §5），提取失败时降级为「只检查 raw 文本」，绝不因此拒绝请求。
+> 例外：PreflightGuard 需要更深的解析（提取 system/user message、tool 定义）。它使用**独立的、容错的**提取器（见 `12-security.md` §5），提取失败时降级为「只检查 raw 文本」，绝不因此拒绝请求。
 
 ---
 
@@ -373,7 +380,7 @@ Bedrock 的 `invoke-with-response-stream` 返回 `application/vnd.amazon.eventst
 
 影响：
 - `SseFramer` 不适用，需要一个 `EventStreamFramer`。
-- 但**上层的 `ProtocolParser` 可以复用**：解出的 payload 是标准的 Anthropic 事件 JSON。
+- 但**上层的 `ProtocolObserver` 可以复用**：解出的 payload 是标准的 Anthropic 事件 JSON。
 
 因此 `argus-protocol` 的接口必须把「分帧」与「解析」分开：
 
@@ -385,7 +392,7 @@ pub trait Framer {
 pub struct SseFramer { .. }
 pub struct EventStreamFramer { .. }   // Bedrock，Phase 3
 
-pub trait ProtocolParser {
+pub trait ProtocolObserver {
     fn on_frame(&mut self, frame: Frame<'_>, out: &mut EventSink) -> Result<(), ParseError>;
 }
 ```
@@ -494,7 +501,7 @@ Schema 必然滞后于 provider，会拒绝合法请求。**否决**（见 §8�
 5. 不做跨协议转换；配置期拒绝，运行期 400。
 6. `/v1/models` 由 Argus 合成，按 Key 权限过滤，扩展信息放 `x-argus` 命名空间。
 7. Provider 方言用声明式配置，且**只影响观测，不影响转发字节**。
-8. `Framer` 与 `ProtocolParser` 从第一天起就是分离的 trait，为 Bedrock eventstream 预留。
+8. `Framer` 与 `ProtocolObserver` 从第一天起就是分离的 trait，为 Bedrock eventstream 预留。
 
 ---
 
@@ -504,5 +511,5 @@ Schema 必然滞后于 provider，会拒绝合法请求。**否决**（见 §8�
 |---|------|---------|
 | OQ-1 | `AnthropicMessages` over `Bedrock` 的重新分帧是否应该在 MVP 就支持？ | 有真实 Bedrock 用户时 |
 | OQ-2 | 是否要支持 `/v1/completions`（legacy）与 `/v1/embeddings`？ | 用户需求驱动；embeddings 很容易加（非流式） |
-| OQ-3 | Responses API 的 `store=true` + `previous_response_id` 会让会话状态存在 OpenAI 侧，Argus 的 conversation trace 如何关联？ | 见 `06-observation-model.md` OQ-3 |
+| OQ-3 | Responses API 的 `store=true` + `previous_response_id` 会让会话状态存在 OpenAI 侧，Argus 的 conversation trace 如何关联？ | 见 `11-observation-model.md` OQ-3 |
 | OQ-4 | 是否为 `OpenAiCompatible` 提供自动方言探测（首次请求时嗅探能力）？ | Phase 3 评估 |

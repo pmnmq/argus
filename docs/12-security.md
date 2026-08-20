@@ -1,8 +1,8 @@
-# 08 · 安全系统
+# 12 · 安全
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 前置：`06-observation-model.md`（IR）、`05-streaming.md`（背压）
-> 相关 ADR：`ADR/ADR-006-fail-open-security.md`
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 前置：`11-observation-model.md`（IR）、`10-streaming.md`（背压）
+> 相关 ADR：`ADR/ADR-012-fail-open-observation.md`
 
 ---
 
@@ -89,7 +89,7 @@ flowchart LR
 
 ### 5.3 提取器的容错要求
 
-安全提取器（`SecurityExtractor`）与 `04-protocols.md` §8 的最小探测不同——它需要深入解析请求 JSON。
+安全提取器（`SecurityExtractor`）与 `09-observers.md` §8 的最小探测不同——它需要深入解析请求 JSON。
 
 **硬性要求：提取失败绝不导致请求失败。**
 
@@ -264,7 +264,7 @@ event: error
 data: {"type":"error","error":{"type":"argus_security_block","message":"Response terminated by security policy (rule: shell-destructive-command). Request ID: req_01J..."}}
 ```
 
-对 OpenAI Chat：发一个含 `error` 的 chunk 后关闭，**且不发 `[DONE]`**（`02-data-plane.md` §9）。
+对 OpenAI Chat：发一个含 `error` 的 chunk 后关闭，**且不发 `[DONE]`**（`06-data-plane.md` §9）。
 
 ---
 
@@ -456,7 +456,7 @@ pub struct ConversationTaint {
 
 某次交互触发 `Block` 后，可选地把整个会话标记为 taint，后续请求直接拒绝。
 
-**限制**：只对 `conversation_link = Explicit` 的会话生效（见 `06-observation-model.md` §9）。基于推断的 conversation_id 做阻断会误伤无关请求。
+**限制**：只对 `conversation_link = Explicit` 的会话生效（见 `11-observation-model.md` §9）。基于推断的 conversation_id 做阻断会误伤无关请求。
 
 存储：内存 `HashMap` + TTL（默认 1 小时），不落 PG（重启后失效是可接受的）。多实例时不共享——这是已知的弱点，可选用 Redis 共享。
 
@@ -500,13 +500,13 @@ pub struct RuleHit {
 encrypt_payloads = false     # 默认关闭
 ```
 
-默认关闭是因为：加密后无法用 PostgreSQL 做内容检索，而审计的核心用途之一就是"搜索谁提到过 X"。开启后 `10-storage.md` §9 的检索能力会显著受限。这个取舍留给用户。
+默认关闭是因为：加密后无法用 PostgreSQL 做内容检索，而审计的核心用途之一就是"搜索谁提到过 X"。开启后 `15-storage.md` §9 的检索能力会显著受限。这个取舍留给用户。
 
 ---
 
 ## 10. Fail 模式矩阵
 
-完整矩阵见 `ADR/ADR-006-fail-open-security.md`，此处是安全模块部分：
+完整矩阵见 `ADR/ADR-012-fail-open-observation.md`，此处是安全模块部分：
 
 | 失败 | 默认 | 可配置 | 理由 |
 |------|------|--------|------|

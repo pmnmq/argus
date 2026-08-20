@@ -1,8 +1,8 @@
-# ADR-004 · Observation IR 的定位与设计
+# ADR-011 · Observation IR
 
 - **状态**：Accepted
 - **日期**：2026-08-19
-- **相关**：`06-observation-model.md`
+- **相关**：`11-observation-model.md`
 
 ---
 
@@ -39,7 +39,7 @@ Argus 需要把三种（未来更多）互不相同的流式协议归一化成�
 | 包含所有协议的所有字段 | 模型随每个 provider 的每次更新而膨胀 |
 | 处理互斥字段（如 Anthropic 的 `system` vs OpenAI 的 `messages[0]`） | 需要标记"这个 IR 来自哪个协议"，那归一化就失去意义 |
 | 对未知字段做决策（丢弃？保留在哪？） | 每个新字段都是一次设计决策 |
-| 保证 `serialize(IR) == original_bytes` | 不可能（见 `ADR-002` 理由 2） |
+| 保证 `serialize(IR) == original_bytes` | 不可能（见 `ADR-008` 理由 2） |
 
 最终它会变成一个又大又不精确的"统一协议"，且**没有任何一个 provider 真正使用它**。
 
@@ -102,7 +102,7 @@ pub struct BlockCoord {
 **理由**：
 - `input_json_delta.partial_json` 可以在任意字节处切断——包括 UTF-8 字符中间、字符串字面量中间、转义序列中间（`\u00` | `e9`）。
 - 中途 parse 必然失败。"失败了就下次再试"意味着每个 delta 一次失败的 parse，纯浪费 CPU。
-- 没有任何场景需要中途的结构化参数（`08-security.md` 的 ToolGate 也是在 BlockStop 检查）。
+- 没有任何场景需要中途的结构化参数（`12-security.md` 的 ToolGate 也是在 BlockStop 检查）。
 
 **推论：绝不"修复"截断的 JSON。** 补齐括号/引号得到的参数可能与模型真实意图不同。把猜测的结果写进审计库，等于伪造数据。
 
@@ -213,5 +213,5 @@ enum Integrity { // 观测到的内容有多完整
 ### 对实现的约束
 
 1. `argus-protocol` 必须是纯计算 crate（无 tokio/hyper/sqlx），否则 IR 的定义会被 IO 关注点污染。
-2. `06-observation-model.md` §5 映射表的**每一行**必须有对应的 golden case（`coverage_matrix` 测试强制）。
+2. `11-observation-model.md` §5 映射表的**每一行**必须有对应的 golden case（`coverage_matrix` 测试强制）。
 3. IR 的所有枚举必须是 `#[non_exhaustive]`，保证新增变体不是 breaking change。

@@ -1,7 +1,7 @@
 # 02 · Data Plane
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 前置：`01-architecture.md`。本文只讲代理主链路；SSE 解析细节见 `05-streaming.md`。
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 前置：`01-architecture.md`。本文只讲代理主链路；SSE 解析细节见 `10-streaming.md`。
 
 ---
 
@@ -9,7 +9,7 @@
 
 Data Plane 要在**每一个请求**上做完这些事，且总额外开销控制在毫秒以内：
 
-识别协议 → 认证授权 → 配额限流 → 请求安全检查 → 选路 → header 变换 → 发起上游请求 → 处理上游失败与 fallback → 双向转发字节 → 旁路复制给观测 → 传播取消 → 收尾。
+解析 target → 认证授权 → 配额限流 → 请求安全检查 → Target Policy → header 变换 → 发起上游请求 → 处理上游失败与重试 → 双向转发字节 → 旁路复制给观测 → 传播取消 → 收尾。
 
 难点不在单项，而在于：**这些步骤中任何一个都不能引入对外部系统（DB / Redis / 观测）的同步等待**，否则 TTFT 直接被外部系统的 p99 绑架。
 
@@ -37,34 +37,34 @@ Data Plane 要在**每一个请求**上做完这些事，且总额外开销控�
 
 ```text
 P0  Accept        接受连接 / 解复用 HTTP2 stream
-P1  Identify      URL path → Protocol；method 校验
+P1  Resolve       URL path → ResolvedTarget（Managed 或 Raw），**按原始字节切分**
 P2  Authenticate  API Key → PrincipalCtx        [可 block, fail-close]
-P3  Authorize     模型/provider 白名单、RBAC     [可 block, fail-close]
+P3  Authorize     profile 白名单 / allow_raw_proxy、RBAC  [可 block, fail-close]
 P4  Admit         配额、限流、load shedding      [可 block, fail-open on backend 故障]
 P5  Ingest        读 body 到 Bytes（≤ 上限）
 P6  Preflight     PreflightGuard 内容检查        [可 block, 硬超时]
-P7  Route         RouteDecision
+P7  Target        Target Policy：scheme / DNS / IP / 端口  [可 block, fail-close]
 P8  Dispatch      header 变换 + 发起上游请求
 P9  Headers       收到上游 response header      ← retry/fallback 的最后机会
 P10 Relay         body 双向转发 + Tee            ← 此后禁止 retry
 P11 Settle        收尾：trailer / 关闭 / 通知 Observer
 ```
 
-`P9` 是整条链路的关键分水岭，详见 §7 与 `07-provider-routing.md` §6。
+`P9` 是整条链路的关键分水岭，详见 §7 与 `08-provider-profiles.md` §7。
 
 ### 4.1 阶段与失败语义速查
 
 | 阶段 | 失败时对 client 的表现 | 是否已污染 | 可否换 provider |
 |------|---------------------|-----------|---------------|
-| P1 | 404 / 405 | 否 | — |
+| P1 | 404 / 400 | 否 | — |
 | P2 | 401 | 否 | — |
-| P3 | 403 | 否 | — |
+| P3 | 403 / 404（防枚举，见 `02` §11） | 否 | — |
 | P4 | 429（带 `Retry-After`） / 503 | 否 | — |
 | P5 | 413 / 400 | 否 | — |
 | P6 | 403（带 policy 信息） | 否 | — |
-| P7 | 404（model not found）/ 503（无健康 provider） | 否 | — |
+| P7 | 403 `target_denied` / 502 `target_dns_failure` | 否 | — |
 | P8 | 502 | 否 | ✅ 可 |
-| P9 | 视上游 status | 否 | ✅ 可（最有价值） |
+| P9 | 视上游 status | 否 | ✅ 可重试**同一 Profile**（无跨 Profile fallback，见 `02` §7） |
 | P10 | **无法改状态码**，只能中断流并写入错误 event | **是** | ❌ 禁止 |
 
 ---
@@ -160,7 +160,7 @@ Observer 侧每消费一个 chunk 就 `in_flight.fetch_sub(len)`，形成字节�
 
 ### 5.2 为什么 `gap_before` 是必须的
 
-如果只是静默丢弃字节，ProtocolParser 会看到一段"看起来连续但实际断裂"的字节流，可能把两个 SSE event 的碎片拼成一个语法上合法但语义错误的 event（例如把 `data: {"a":1}` 的尾巴接到下一个 event 的头上）。**错误的观测数据比没有观测数据更危险**。
+如果只是静默丢弃字节，ProtocolObserver 会看到一段"看起来连续但实际断裂"的字节流，可能把两个 SSE event 的碎片拼成一个语法上合法但语义错误的 event（例如把 `data: {"a":1}` 的尾巴接到下一个 event 的头上）。**错误的观测数据比没有观测数据更危险**。
 
 `gap_before > 0` 让 parser 立刻进入 `Resync` 状态：丢弃当前缓冲，扫描到下一个 `\n\n` 边界再恢复。同时该 interaction 被永久标记为 `Degraded { dropped_bytes, gap_count }`。
 
@@ -180,21 +180,29 @@ let upstream_req = Request::from_parts(parts, Full::new(body));
 
 ## 6. 请求处理细节
 
-### 6.1 协议识别（P1）
+### 6.1 Target 解析（P1）
 
-路由表是静态的，不查配置：
+路由表只有三条，是静态的：
 
-| Method + Path | `Protocol` | 备注 |
+| Path 前缀 | 解析器 | 产出 |
 |---|---|---|
-| `POST /v1/chat/completions` | `OpenAiChat` | |
-| `POST /v1/responses` | `OpenAiResponses` | |
-| `POST /v1/messages` | `AnthropicMessages` | |
-| `POST /v1/messages/count_tokens` | `AnthropicMessages` | 非流式，走简化链路 |
-| `GET  /v1/models` | — | Control Plane 投影，见 `04-protocols.md` §6 |
-| `GET  /v1/models/{id}` | — | 同上 |
-| `GET  /healthz` `/readyz` `/metrics` | — | 运维端点，不经 Gatekeeper |
+| `/provider/{name}/…` | Managed Resolver | `ResolvedTarget{ origin: Managed, .. }` |
+| `/raw/…` | Raw Resolver | `ResolvedTarget{ origin: Raw, .. }` |
+| `/healthz` `/readyz` `/metrics` | — | 运维端点，不经 Gatekeeper |
 
-**不做**基于 body 内容的协议嗅探。path 是唯一依据——嗅探会带来歧义与安全问题。
+拼接与编码规则见 `03-managed-provider-mode.md` §5–7 与 `04-raw-proxy-mode.md` §4–5。
+
+**三条硬约束：**
+
+1. **只读 `uri().path()` 的原始字节**。禁止使用 axum 的 `Path` 提取器或任何
+   会百分号解码的东西——实测它会把 `%2F` 解成 `/`，路径段数都变了
+   （`04-raw-proxy-mode.md` §5.2）。
+2. **不做 body 内容嗅探**。path 是唯一依据。
+3. **不看 `model` 字段**。它对 Data Plane 是不透明数据（`02-routing-model.md` §4.2）。
+
+> v1 在这里用 `URL path → Protocol` 做协议识别。新模型下 path 决定的是
+> **上游地址**，协议形状只影响 Observer 的选择（`09-observers.md` §4）
+> 与错误体的渲染形状（§9）。
 
 ### 6.2 请求体读取（P5）
 
@@ -219,7 +227,7 @@ ingest_timeout    = "30s"        # 读 body 的整体超时
 
 ### 6.3 Header 变换（P8）
 
-三类处理，规则表见 `04-protocols.md` §4。核心原则：
+三类处理，规则表见 `09-observers.md` §4。核心原则：
 
 1. **必须剥离**：所有 hop-by-hop header（`Connection`、`Keep-Alive`、`Transfer-Encoding`、`Upgrade`、`Proxy-*`、`TE`、`Trailer`）；client 的 `Authorization` / `x-api-key`（**绝不透传到 provider**）；`Host`。
 2. **必须注入**：provider credential（形式取决于 `ProviderKind`）；`Host`（上游的）；`x-argus-request-id`。
@@ -350,7 +358,7 @@ pub struct RequestCtx {
 ```
 
 三个取消源：
-1. `shutdown_token.child_token()` —— 进程停机（见 `12-reliability.md` §3）。
+1. `shutdown_token.child_token()` —— 进程停机（见 `17-reliability.md` §3）。
 2. 请求级 deadline（`route.timeout.total`）。
 3. StreamGuard 的 `Block` 判定（`gate_tools` / `delay_window` 模式）。
 
@@ -379,7 +387,7 @@ Observer 在收到以下任一信号时收尾：
 | channel 关闭 + `TeeEnd::Cancelled(reason)` | `Cancelled { reason }` |
 | observer 自身超时（`observer.idle_timeout`，默认 5min） | `ObserverTimeout` |
 
-**所有情况都会落库**——一个被中途取消的流的 partial 结果，对审计和计费同样重要（provider 通常已经计了已生成的 token）。Accumulator 的 partial 语义见 `06-observation-model.md` §7。
+**所有情况都会落库**——一个被中途取消的流的 partial 结果，对审计和计费同样重要（provider 通常已经计了已生成的 token）。Accumulator 的 partial 语义见 `11-observation-model.md` §7。
 
 ---
 
@@ -389,11 +397,11 @@ Observer 在收到以下任一信号时收尾：
 
 ```rust
 pub trait ErrorRenderer {
-    fn render(&self, err: &ProxyError, protocol: Protocol) -> Response;
+    fn render(&self, err: &ProxyError, observer: ObserverKind) -> Response;
 }
 ```
 
-| Protocol | 错误形状 |
+| ObserverKind | 错误形状 |
 |---|---|
 | `OpenAiChat` / `OpenAiResponses` | `{"error":{"message","type","param","code"}}` |
 | `AnthropicMessages` | `{"type":"error","error":{"type","message"}}` |
@@ -403,7 +411,7 @@ pub trait ErrorRenderer {
 - OpenAI：发一个 `data: {"error":{...}}\n\n`，然后**不发** `data: [DONE]`，直接关闭。不发 `[DONE]` 是刻意的信号——正常结束必然有 `[DONE]`，缺失即异常。
 - Anthropic：发 `event: error\ndata: {"type":"error","error":{...}}\n\n`，然后关闭。这是 Anthropic 协议原生支持的。
 
-所有错误响应都带 `x-argus-request-id`，便于对账。**错误 body 中不得包含 provider 的原始凭据信息或内部栈信息**（由 `ErrorRenderer` 统一脱敏，见 `08-security.md` §10）。
+所有错误响应都带 `x-argus-request-id`，便于对账。**错误 body 中不得包含 provider 的原始凭据信息或内部栈信息**（由 `ErrorRenderer` 统一脱敏，见 `12-security.md` §10）。
 
 ---
 
@@ -441,7 +449,8 @@ pub struct PrincipalCtx {
 
 pub struct RequestCtx {
     pub trace:     TraceContext,
-    pub protocol:  Protocol,
+    /// 只影响错误体渲染形状与 Observer 选择，**不参与路由**
+    pub observer:  ObserverKind,
     pub principal: PrincipalCtx,
     pub snapshot:  Arc<ConfigSnapshot>,        // 请求期间固定
     pub cancel:    CancellationToken,
@@ -449,23 +458,34 @@ pub struct RequestCtx {
     pub started:   Instant,                    // 单调时钟
 }
 
-pub struct RouteDecision {
-    pub attempt:        u8,
-    pub provider_id:    ProviderId,
-    pub provider_kind:  ProviderKind,
-    pub endpoint_id:    EndpointId,          // AttemptRecord 要按它归因（07 §7.4）
-    pub binding_id:     BindingId,           // capabilities 挂在 binding 层（07 §4.3）
-    /// hyper 直接消费的类型，省掉每请求一次 parse；clone 是引用计数。
-    /// URL **拼装**（Azure deployment 路径、api-version 等）在 router 里用
-    /// `url::Url` 做，结果在配置解析期转成 Uri 一次。
-    pub endpoint_url:   http::Uri,
-    pub credential:     Arc<ResolvedCredential>,
-    pub provider_model: CompactString,          // 上游真实模型名
-    pub logical_model:  CompactString,
-    pub protocol:       Protocol,               // 必须与 request.protocol 相同
-    pub timeouts:       Timeouts,
-    pub retry:          Arc<RetryPolicy>,
-    pub observe:        ObserveMode,            // Full / Lite / Off（采样结果）
+pub struct ResolvedTarget {
+    pub attempt:      u8,
+    /// 上游地址是怎么定下来的。审计要能区分 Managed 与 Raw
+    pub origin:       TargetOrigin,
+    /// 完整上游 URL。hyper 直接消费，clone 是引用计数
+    pub uri:          Uri,
+    pub credential:   CredentialMode,
+    /// 观测器选择；Raw 模式下可能是 GenericSse / GenericJson
+    pub observer:     ObserverKind,
+    pub timeouts:     Timeouts,
+    pub retry:        Arc<RetryPolicy>,
+    /// 采样结果，整条流固定
+    pub observe:      ObserveMode,
+    pub proxy_policy: Arc<ProxyPolicy>,
+}
+
+pub enum TargetOrigin {
+    Managed { profile: ProviderProfileId, profile_name: CompactString },
+    Raw,
+}
+
+pub enum CredentialMode {
+    /// Argus 注入自己保管的供应商凭据
+    Injected(Arc<ResolvedCredential>),
+    /// 客户端自带上游凭据，原样透传
+    Passthrough,
+    /// 上游不需要认证（本地模型常见）
+    None,
 }
 
 pub struct Timeouts {
@@ -515,7 +535,7 @@ pub struct Timeouts {
 `reqwest` 封装了重定向、cookie、自动解压、retry 等，这些对透明代理都是**负面**的（自动解压会改变字节；重定向会跳到未授权的 host）。且它把 body 包成自己的类型，取消语义不透明。**否决**，直接用 `hyper-util` 的 `Client<HttpsConnector, Full<Bytes>>`。
 
 **B. 在 P9 之前不建立上游连接，先做完所有本地检查。**
-现状已经是这样（P2–P7 全在本地）。但曾考虑「预热连接」——在 P5 读 body 的同时并行建立上游连接以省 TLS 握手时间。**推迟**：需要先知道路由结果才知道连哪里，除非做投机性预连接。放到 `16-mvp-roadmap.md` 的 Phase 3 优化项。
+现状已经是这样（P2–P7 全在本地）。但曾考虑「预热连接」——在 P5 读 body 的同时并行建立上游连接以省 TLS 握手时间。**推迟**：需要先知道路由结果才知道连哪里，除非做投机性预连接。放到 `22-mvp-roadmap.md` 的 Phase 3 优化项。
 
 **C. 用 `tower::retry::Retry` layer 实现重试。**
 该 layer 要求 `Request` 可 `Clone`，我们的 body 是 `Bytes` 所以可行。但它无法表达 §7.1 的状态机（尤其是「基于 response header 判定」和「S3 后禁止」）。**否决**，手写重试循环。

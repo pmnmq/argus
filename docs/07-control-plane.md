@@ -1,6 +1,6 @@
-# 03 · Control Plane
+# 07 · Control Plane
 
-> 状态：Draft v1 · 最后更新 2026-08-19
+> 状态：Draft v2 · 最后更新 2026-08-20
 > 前置：`01-architecture.md` §7（ConfigSnapshot）
 
 ---
@@ -72,11 +72,10 @@ Base path：`/admin/v1`。认证见 §6。全部 JSON。
 
 | 资源 | 端点 | 说明 |
 |------|------|------|
-| Provider | `GET/POST /providers`、`GET/PATCH/DELETE /providers/{id}` | provider 定义 |
-| Endpoint | `GET/POST /providers/{id}/endpoints`、`PATCH/DELETE /endpoints/{eid}` | 一个 provider 可有多个地域/部署 |
-| Credential | `POST /providers/{id}/credentials`、`DELETE /credentials/{cid}` | **只写不读**，见 §7 |
-| Logical Model | `GET/POST /models`、`GET/PATCH/DELETE /models/{name}` | 逻辑模型 |
-| Provider Model | `GET/POST /models/{name}/bindings`、`PATCH/DELETE /bindings/{bid}` | 逻辑模型 → provider 模型的绑定 |
+| Provider Profile | `GET/POST /profiles`、`GET/PATCH/DELETE /profiles/{name}` | **路由单位**，`name` 出现在 URL 里 |
+| Credential | `POST /profiles/{name}/credentials`、`DELETE /credentials/{cid}` | **只写不读**，见 §7 |
+| Observer Rule | `GET/PUT /observer-rules` | 有序规则表，整表替换（顺序有语义） |
+| Target Policy | `GET/PUT /target-policy`、`GET/PUT /profiles/{name}/target-policy` | SSRF 边界，见 `13-ssrf-protection.md` |
 | Workspace | `GET/POST /workspaces`、`GET/PATCH/DELETE /workspaces/{id}` | |
 | User | `GET/POST /users`、… | |
 | API Key | `POST /workspaces/{id}/keys`（返回明文**仅此一次**）、`GET /keys`、`DELETE /keys/{kid}` | |
@@ -97,20 +96,27 @@ Base path：`/admin/v1`。认证见 §6。全部 JSON。
 **校验必须包含语义检查**，不只是 schema：
 
 ```text
-POST /models/claude-sonnet/bindings  { provider: "openai", provider_model: "gpt-4o" }
-→ 400: protocol_mismatch
-  逻辑模型 claude-sonnet 声明 protocol=anthropic_messages，
-  但 provider "openai" 的该 endpoint 只提供 openai_chat。
-  跨协议调用在当前版本不受支持（见 docs/04-protocols.md §7）。
+POST /profiles  { name: "x", credential: { mode: "injected" } }
+→ 400: credential_header_required
+  mode=injected 时必须指定 header 与 format（见 docs/08-provider-profiles.md §5）。
+
+PUT /target-policy  { allow_cidrs: [] }  且某个 profile 开了 raw + injected
+→ 400: raw_injected_requires_allowlist
+  allow_raw_proxy 与 injected 凭据同时开启时必须配非空 allowlist，
+  否则调用方可以用你保管的凭据打任意地址（见 docs/13-ssrf-protection.md §9）。
 ```
 
-这类校验是 Argus 的核心价值之一：**在配置时就阻止不可能工作的组合**，而不是等到运行时报错。
+这类校验是 Argus 的核心价值之一：**在配置时就阻止不可能工作、或危险的组合**，
+而不是等到运行时才炸。
+
+> 注意这里**没有**「校验 model 在不在该 provider 上」这类检查 ——
+> Argus 不维护模型目录（`02-routing-model.md` §3），猜错的校验比没有校验更糟。
 
 ### 5.3 审计查询
 
 ```http
 GET /admin/v1/audit/requests
-  ?workspace_id=...&api_key_id=...&model=...&provider=...
+  ?workspace_id=...&api_key_id=...&profile=...&target_host=...&origin=raw
   &status=error&from=2026-08-01T00:00:00Z&to=2026-08-19T00:00:00Z
   &has_tool_calls=true&security_action=block
   &cursor=<opaque>&limit=50
@@ -118,7 +124,7 @@ GET /admin/v1/audit/requests
 
 - **游标分页**，不用 OFFSET（`requests` 表很大，OFFSET 会全表扫）。游标编码 `(started_at, request_id)`。
 - 默认返回摘要（不含 body）。完整 raw 走 `/raw` 子资源，且需要额外 scope（见 §6.2）——prompt 内容是敏感数据。
-- `/raw` 返回时按 workspace 的脱敏策略处理（见 `10-storage.md` §9）。
+- `/raw` 返回时按 workspace 的脱敏策略处理（见 `15-storage.md` §9）。
 
 ### 5.4 诊断端点
 
@@ -247,27 +253,29 @@ argus config export --out argus-config.yaml          # 不含 credential 明文
 ```
 
 ```yaml
-providers:
+profiles:
   - name: anthropic-prod
-    kind: anthropic
-    endpoints:
-      - url: https://api.anthropic.com
-        weight: 100
-    credential_ref: env:ANTHROPIC_API_KEY      # 从环境读，不写进文件
+    provider_type: anthropic
+    base_url: https://api.anthropic.com
+    observer: anthropic-messages
+    credential:
+      mode: injected
+      credential_ref: env:ANTHROPIC_API_KEY    # 从环境读，不写进文件
+      header: x-api-key
+      format: "{secret}"
+    extra_headers:
+      anthropic-version: "2023-06-01"
 
-models:
-  - name: claude-sonnet
-    protocol: anthropic_messages
-    capabilities: { streaming: true, tools: true, vision: true, reasoning: true,
-                    context_length: 200000, max_output: 64000 }
-    bindings:
-      - provider: anthropic-prod
-        provider_model: claude-sonnet-4-6
-        priority: 100
-      - provider: bedrock-us-east-1
-        provider_model: anthropic.claude-sonnet-4-6-v1:0
-        priority: 50                            # fallback
+observer_rules:
+  - match: { path_prefix: "/v1/responses" }
+    observer: openai-responses
+
+target_policy:
+  allow_cidrs: []                              # 默认只放行公网
 ```
+
+**没有 `models:` 段。** 这不是省略——模型目录整个不存在
+（`02-routing-model.md` §3）。供应商上新模型时这个文件一个字都不用改。
 
 `credential_ref: env:XXX` 让配置文件可以安全地提交到 Git。
 
@@ -286,7 +294,7 @@ models:
 | 新快照构建时 OOM 风险 | 构建失败则保留旧快照 | 记 `config_reload_failed` |
 | master key 丢失 | credential 无法解密 → **所有上游请求失败** | 启动时即检测并拒绝启动，避免半可用状态 |
 
-**master key 丢失是唯一会同时打垮两个平面的故障**，因此 `13-deployment.md` §7 会强调它的备份要求。
+**master key 丢失是唯一会同时打垮两个平面的故障**，因此 `18-deployment.md` §7 会强调它的备份要求。
 
 ---
 
@@ -334,6 +342,6 @@ models:
 | # | 问题 | 何时决定 |
 |---|------|---------|
 | OQ-1 | 是否需要支持只读副本以彻底隔离统计查询？ | `requests` 表超过 1 亿行时 |
-| OQ-2 | 统计聚合是否需要预计算物化视图（按小时/按天）？ | Dashboard 出现慢查询时，见 `10-storage.md` OQ-2 |
+| OQ-2 | 统计聚合是否需要预计算物化视图（按小时/按天）？ | Dashboard 出现慢查询时，见 `15-storage.md` OQ-2 |
 | OQ-3 | OIDC 接入的优先级 | 有企业用户需求时 |
 | OQ-4 | 是否提供 credential 的「代理验证」端点（帮管理员测试 key 是否有效）？ | 实现时评估，注意不要成为凭据探测工具 |

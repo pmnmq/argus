@@ -1,8 +1,8 @@
-# ADR-005 · 流式架构：Tee + 有界旁路
+# ADR-009 · 流式 Tee
 
 - **状态**：Accepted
 - **日期**：2026-08-19
-- **相关**：`05-streaming.md`、`02-data-plane.md` §5、`12-reliability.md`
+- **相关**：`10-streaming.md`、`06-data-plane.md` §5、`17-reliability.md`
 
 ---
 
@@ -99,7 +99,7 @@ Observer 每消费一个 chunk 就 `fetch_sub`，形成信用回收。
 
 ### M3 · `gap_before`：让有损可检测（I3）
 
-**静默丢弃字节是危险的**。ProtocolParser 会看到一段"看起来连续但实际断裂"的字节流，可能把两个 event 的碎片拼成一个语法合法但语义错误的 event。
+**静默丢弃字节是危险的**。ProtocolObserver 会看到一段"看起来连续但实际断裂"的字节流，可能把两个 event 的碎片拼成一个语法合法但语义错误的 event。
 
 **错误的观测数据比没有观测数据更危险**——它会污染审计、误导安全分析、算错成本，而且没人知道。
 
@@ -242,7 +242,7 @@ TTFT 变成完整响应时间（可能 60 秒），内存无界。这是很多�
 
 - 主链路的额外开销 < 100 ns/frame，可以认为是零。
 - 观测的任何故障（慢、崩溃、下游挂）都不影响转发——这是可以证明的（主链路上没有对观测的 `.await`）。
-- 内存在任何输入下都有上界，可以逐项核算（`12-reliability.md` §4）。
+- 内存在任何输入下都有上界，可以逐项核算（`17-reliability.md` §4）。
 - 有损是**可检测且可量化**的，不产生污染数据。
 - 降级策略保证了"被观测的数据是完整可信的"。
 
@@ -259,7 +259,7 @@ TTFT 变成完整响应时间（可能 60 秒），内存无界。这是很多�
 
 ### 关键的验证要求
 
-本 ADR 的全部性能论断**都是估算**。`16-mvp-roadmap.md` 的 M0 里程碑存在的唯一理由就是验证它们：
+本 ADR 的全部性能论断**都是估算**。`22-mvp-roadmap.md` 的 M0 里程碑存在的唯一理由就是验证它们：
 
 - `proxy_added_ttft` p50 < 2 ms，p99 < 15 ms
 - 10k 并发流 RSS < 1.5 GB
@@ -273,6 +273,6 @@ TTFT 变成完整响应时间（可能 60 秒），内存无界。这是很多�
 ## 相关的强制约束
 
 1. **Observer 只持有 `mpsc::Receiver<TeeChunk>`，绝不持有任何 hyper 类型。** 否则上游连接不会因客户端断开而关闭，取消传播失效。
-2. **CI 禁止 `unbounded_channel`**（`15-testing-strategy.md` §9）。
+2. **CI 禁止 `unbounded_channel`**（`20-testing-strategy.md` §9）。
 3. **CI 禁止 `tee.rs` 中出现 `.send(`**（只允许 `try_send`）。
 4. **`panic = "unwind"`**，否则 parser 的一个 bug 会杀死上千条连接。

@@ -1,6 +1,6 @@
-# 14 · Rust 项目结构
+# 19 · Rust 工程结构
 
-> 状态：Draft v1 · 最后更新 2026-08-19
+> 状态：Draft v2 · 最后更新 2026-08-20
 > 前置：`01-architecture.md` §5（依赖方向）
 
 ---
@@ -69,7 +69,7 @@ argus/
 │   ├── argus.example.toml
 │   └── profiles/{nano,small,medium,large}.toml
 ├── tests/
-│   ├── fixtures/                 # golden test 数据（见 15-testing-strategy.md）
+│   ├── fixtures/                 # golden test 数据（见 20-testing-strategy.md）
 │   └── e2e/
 ├── benches/
 └── docs/
@@ -85,7 +85,7 @@ argus/
 | `argus-storage` | **A + B** | A：sqlx 只在这里。B：sqlx + 迁移 + zstd，依赖重且编译慢，隔离后改 proxy 代码不用重编 sqlx。 |
 | `argus-server` | — | bin crate，组装一切。 |
 
-**关键洞察**：`argus-proxy` 与 `argus-storage` 分开，不是因为它们"是不同的东西"，而是因为**必须在编译期证明前者不依赖后者**（`10-storage.md` G-St1）。这是判据 A 的典型应用。
+**关键洞察**：`argus-proxy` 与 `argus-storage` 分开，不是因为它们"是不同的东西"，而是因为**必须在编译期证明前者不依赖后者**（`15-storage.md` G-St1）。这是判据 A 的典型应用。
 
 ### 5.2 为什么 security / auth / provider / observer 不独立成 crate
 
@@ -105,11 +105,11 @@ argus/
 crates/argus-core/src/
 ├── lib.rs
 ├── config/          # 进程配置（Config / Limits / Timeouts）
-├── ids.rs           # 强类型 ID（WorkspaceId / ApiKeyId / TraceContext）
-├── protocol.rs      # Protocol / ProviderKind 枚举
-├── model.rs         # LogicalModel / ModelBinding / Capabilities
-├── provider.rs      # ProviderConfig / Endpoint / Dialect / ResolvedCredential
-├── route.rs         # RouteDecision / RetryPolicy
+├── ids.rs           # 强类型 ID（WorkspaceId / ApiKeyId / ProviderProfileId / …）
+├── observe.rs       # ObserverKind / ObserveMode
+├── provider.rs      # ProviderProfile / ProviderType / CredentialBinding / ResolvedCredential
+├── target.rs        # ResolvedTarget / TargetOrigin / CredentialMode / TargetPolicy
+├── route.rs         # Timeouts / RetryPolicy / Backoff / ProxyPolicy
 ├── snapshot.rs      # ConfigSnapshot / ConfigHandle (ArcSwap)
 ├── tee.rs           # TeeChunk / TeeEnd
 └── error.rs         # ProxyError / 错误分类
@@ -120,12 +120,13 @@ crates/argus-protocol/src/
 ├── framer/
 │   ├── mod.rs       # trait Framer
 │   ├── sse.rs       # SseFramer
-│   └── eventstream.rs  # Bedrock（Phase 3，先留空实现）
-├── parser/
-│   ├── mod.rs       # trait ProtocolParser + enum dispatch
+│   └── eventstream.rs  # Bedrock（Phase 2，先留空）
+├── observer/
+│   ├── mod.rs       # trait ProtocolObserver + 按 ObserverKind 分发
 │   ├── openai_chat.rs
 │   ├── openai_responses.rs
-│   └── anthropic.rs
+│   ├── anthropic.rs
+│   └── generic.rs   # GenericSse / GenericJson —— 认不出协议时的兜底
 ├── accumulator/     # Accumulator / BlockState / UsageAccumulator
 ├── synthetic.rs     # 非流式 JSON → 等价事件序列
 ├── interaction.rs   # ObservedInteraction / Outcome / Integrity
@@ -133,25 +134,27 @@ crates/argus-protocol/src/
 
 crates/argus-proxy/src/
 ├── lib.rs
-├── ingress/         # Axum router / 协议识别 / body ingest / ErrorRenderer
+├── ingress/         # Axum router / **按原始字节切 path** / body ingest / ErrorRenderer
+│   ├── managed.rs   # /provider/{name}/… 的 Resolver
+│   └── raw.rs       # /raw/… 的 Resolver（两种 URL 形式）
+├── target/          # Target Policy：scheme/CIDR/端口判定、DNS 解析与连接时确认
 ├── auth/            # KeyCache / 认证 / 授权 / EffectiveLimits
 ├── quota/           # GCRA 限流 / token & cost 软配额
-├── router/          # 选路 / 权重 / 熔断 / throttle
 ├── upstream/        # hyper client / header 变换 / retry 状态机 / 连接池
 ├── tee.rs           # TeeBody / TeeHandle
 ├── gate.rs          # GatedBody（ToolGate 的主链路侧）
-├── observer/        # Observer task / ObserveMode 决策 / ObserverLoad
+├── observer/        # Observer task / ObserverKind 解析 / ObserveMode 决策
 └── security/        # 规则引擎 / PreflightGuard / StreamGuard / ToolGate / PostGuard
-    ├── rules/       # 内置规则集
-    ├── extract.rs   # SecurityExtractor
-    └── detector.rs  # LLM detector（可选）
+    ├── rules/
+    ├── extract.rs
+    └── detector.rs
 
 crates/argus-storage/src/
 ├── lib.rs
 ├── pool.rs          # PgPool 构建（data / admin 两个）
 ├── sink/            # Batcher / Writer / PgSink（impl InteractionSink）
 ├── spool/           # segment 写入 / Replayer / checkpoint
-├── repo/            # Control Plane 的 CRUD
+├── repo/            # Control Plane 的 CRUD（profiles / observer_rules / target_policies）
 ├── partition.rs     # 分区维护 task
 └── crypto.rs        # credential 加解密
 
@@ -163,6 +166,10 @@ crates/argus-server/src/
 └── doctor.rs
 ```
 
+> 与 v1 的差异：`router/` 变成 `ingress/{managed,raw}` + `target/`（选路没了，
+> 剩下的是解析与准入）；`parser/` 改名 `observer/` 并新增 `generic.rs`；
+> `core` 新增 `target.rs` / `observe.rs`，删除 `model.rs`（模型目录已不存在）。
+
 ---
 
 ## 6. 长期结构（Phase 3+）
@@ -173,7 +180,7 @@ crates/argus-server/src/
 |------|---------|
 | `argus-security` | security/ > 5000 行，或引入 tokenizer / ML 推理依赖 |
 | `argus-control` | Control Plane 的 handler > 3000 行，或需要独立发布 admin-only 二进制 |
-| `argus-provider` | 支持 > 8 种 ProviderKind，且 SigV4/OAuth2 等认证逻辑变重 |
+| `argus-provider` | 支持 > 8 种 ProviderType，且 SigV4/OAuth2 等认证逻辑变重 |
 | `argus-sdk`（客户端库） | 有外部用户要用 Rust 调 Argus 的 admin API |
 
 ```text
@@ -325,7 +332,7 @@ inherits = "release"
 | `argus-storage` | argus-core, argus-protocol, sqlx, tokio, zstd | argus-proxy |
 | `argus-server` | 全部 | — |
 
-CI 检查（见 `15-testing-strategy.md` §9）：
+CI 检查（见 `20-testing-strategy.md` §9）：
 
 ```bash
 # 断言 argus-proxy 的依赖树中不含 sqlx
@@ -338,7 +345,7 @@ CI 检查（见 `15-testing-strategy.md` §9）：
 
 | 选择 | 替代品 | 理由 |
 |------|--------|------|
-| `hyper` 直接用 | `reqwest` | reqwest 会自动解压/重定向（破坏透明性），且 body 类型不透明。见 `02-data-plane.md` §13-A |
+| `hyper` 直接用 | `reqwest` | reqwest 会自动解压/重定向（破坏透明性），且 body 类型不透明。见 `06-data-plane.md` §13-A |
 | `rustls` | `openssl` | 静态构建、无系统依赖、无 CVE 追赶（**但见下方 7.3.1**） |
 | `sqlx` | `diesel` / `tokio-postgres` | 异步原生；编译期 SQL 校验（可选）；内置迁移 |
 | `compact_str` | `String` | ≤24 字节 inline，覆盖绝大多数 tool name / event name，零堆分配 |
@@ -410,6 +417,33 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
 
 ## 9. 代码规范（编译期强制）
 
+分三层：全 workspace 的基线、`argus-protocol` 的加严、以及 `clippy.toml` 里
+按名字禁用的具体 API。
+
+### 9.1 全 workspace 基线
+
+```toml
+# 根 Cargo.toml
+[workspace.lints.clippy]
+pedantic  = { level = "warn", priority = -1 }   # priority 让具体 lint 能覆盖组
+dbg_macro = "deny"                              # 调试残留
+```
+
+```toml
+# 各 crate 的 Cargo.toml
+[lints]
+workspace = true
+```
+
+CI 用 `-D warnings` 跑 clippy，因此上面的 `warn` 实际等价于 `deny`。这是刻意的：
+让新代码在合入前就干净，而不是攒一堆「以后再说」的警告 —— 一旦攒起来，
+真正重要的警告就淹没在噪音里了。
+
+`dbg_macro` 单列出来，是因为提交前检查清单里有「无调试代码」一条。
+能机械检查的东西不该靠人记。
+
+### 9.2 `argus-protocol` 的加严
+
 ```rust
 // crates/argus-protocol/src/lib.rs
 #![forbid(unsafe_code)]
@@ -422,25 +456,77 @@ rustflags = ["-C", "link-arg=-fuse-ld=mold"]
     clippy::unreachable,
     clippy::todo,
 )]
-#![warn(clippy::pedantic)]
 ```
 
-其他 crate 用较宽松的规则，但都 `#![forbid(unsafe_code)]`（除非有明确论证的例外，需在代码中写明理由并单独 `#[allow]`）。
+这一组是宪法 C7 的编译期实现：解析层跑在 observer task 里，它 panic 虽然会被
+`catch_unwind` 接住，但那已经意味着这条流的观测数据没了。
+
+其他 crate 都 `#![forbid(unsafe_code)]`（例外需在代码中写明理由并单独 `#[allow]`）。
+测试模块要用 `unwrap` 时，在该 `mod` 上单独 `#![allow]` 并写 `reason`，
+不要放宽 crate 级别的设置。
+
+### 9.3 `clippy.toml`
 
 ```toml
-# clippy.toml
 disallowed-methods = [
-  # 主链路禁止的阻塞调用
-  { path = "std::thread::sleep", reason = "use tokio::time::sleep" },
-  { path = "std::fs::read", reason = "use tokio::fs or spawn_blocking" },
+  { path = "std::thread::sleep", reason = "阻塞 tokio worker，用 tokio::time::sleep" },
+  { path = "std::fs::read",      reason = "阻塞 tokio worker，用 tokio::fs 或 spawn_blocking" },
+  # …
 ]
+
+disallowed-types = [
+  # ⚠️ ingress 里绝对不能用会百分号解码的提取器：实测 axum 的 Path 会把
+  # %2F 解成 /，路径段数都变了，上游收到的是另一个资源（04 §5.2）。
+  { path = "axum::extract::Path", reason = "会 decode，破坏透明性；改读 uri().path() 按字节切" },
+  { path = "std::sync::mpsc::Sender", reason = "同步 channel 会阻塞 async 任务" },
+  # …
+]
+
+# clippy::doc_markdown 会把 PostgreSQL / OpenAI 这类驼峰词当成"忘了加反引号的
+# 标识符"。给产品名加反引号是错的 —— 它们是散文里的名词，不是代码。
+# 末尾的 ".." 表示在 clippy 默认清单之上追加而非替换。
+doc-valid-idents = ["OpenAI", "PostgreSQL", "UUIDv7", "OAuth2", "SigV4", ".."]
 ```
+
+### 9.4 `rustfmt.toml`
+
+关键的两项：`max_width = 100`、`chain_width = 80`（默认是 `max_width` 的 60%）。
+
+`imports_granularity = "Crate"`（把同一个 crate 的 `use` 合成一条）是
+**nightly-only**。stable 上 rustfmt 会对每个文件打一条 warning 然后忽略它。
+处理方式见 `ci/fmt.sh`：有 nightly rustfmt 就用它，没有就退回 stable 并收掉
+那条噪音。
+
+已验证 nightly 合并过的 import 能通过 stable 的 `cargo fmt --check`，两边不会
+来回打架 —— 所以 CI 的校验步骤保持在 stable，不引入 nightly 依赖。代价是
+import 合并只是「用了 nightly 就应用」，不是强制。要强制就得让 CI 也装
+nightly，那会把 CI 的稳定性绑在一个每天变的工具链上，不划算。
+
+### 9.5 命令入口：`justfile`
+
+日常命令都走 `just`，它是**唯一的事实源** —— CI 调的就是同一批 recipe：
+
+```
+just            列出全部命令
+just check      日常：fmt + clippy + test + 不变式（约 5 秒）
+just ci         提交前：CI 会跑的一切（约 1 分钟）
+just test -p argus-protocol framer
+```
+
+不让 CI 与本地各写一份命令，是因为那必然漂移，然后变成「本地明明是绿的」。
+
+一个细节：`cargo` 里 `--workspace` 会**静默盖掉** `-p`，`just test -p argus-core`
+会变成跑全量而没有任何提示。所以 recipe 里用条件表达式 —— 无参数时显式加
+`--workspace`，有参数时不加（不能干脆不写：虚拟根默认等于全部成员只是当前的
+巧合，将来谁加一行 `default-members`，无参数那次就会悄悄收窄）。
+
+---
 
 ---
 
 ## 10. Failure Modes
 
-结构层面的"故障"是**架构约束被悄悄破坏**。每一条都有对应的 CI 检查（`15-testing-strategy.md` §9）。
+结构层面的"故障"是**架构约束被悄悄破坏**。每一条都有对应的 CI 检查（`20-testing-strategy.md` §9）。
 
 | 场景 | 表现 | 检测 | 处理 |
 |------|------|------|------|
@@ -509,5 +595,5 @@ DDD 风格。对这个规模的项目是纯粹的仪式性开销。**否决**。
 |---|------|------|---------|
 | OQ-1 | `security` 的实际代码量会不会很快超过 5000 行？ | 未知 | 实现 MVP 规则集后 |
 | OQ-2 | `argus-protocol` 禁止 `hyper` 是否会在实现 Bedrock eventstream 时造成麻烦？ | 应该不会（framer 只吃 `&[u8]`） | 实现 Bedrock 时 |
-| OQ-3 | musl 静态构建下是否需要显式引入 jemalloc？ | 未测 | 压测阶段（见 `13-deployment.md` OQ-5） |
+| OQ-3 | musl 静态构建下是否需要显式引入 jemalloc？ | 未测 | 压测阶段（见 `18-deployment.md` OQ-5） |
 | OQ-4 | 是否用 sqlx 的编译期 SQL 校验（`query!` 宏）？它要求编译时有数据库或 offline 数据。 | 倾向用 `query_as` + offline | 实现 storage 时 |

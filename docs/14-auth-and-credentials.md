@@ -1,7 +1,7 @@
-# 09 · 认证、授权与配额
+# 14 · 认证与凭据
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 前置：`02-data-plane.md` §4（P2–P4）、`03-control-plane.md` §6（管理面认证）
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 前置：`06-data-plane.md` §4（P2–P4）、`07-control-plane.md` §6（管理面认证）
 
 ---
 
@@ -53,11 +53,11 @@ erDiagram
 | **User** | 一个人。有登录凭据（用于 Control Plane），可属于多个 Workspace。 |
 | **Workspace** | 租户边界。所有资源（Key、配额、策略、审计数据）都归属于某个 Workspace。 |
 | **Membership** | User × Workspace × Role。 |
-| **Role** | 角色，携带一组 scope（见 `03-control-plane.md` §6.2）。 |
+| **Role** | 角色，携带一组 scope（见 `07-control-plane.md` §6.2）。 |
 | **ApiKey** | Data Plane 的调用凭据。属于 Workspace，可选归属某个 User。 |
 | **Quota** | 配额定义，可挂在 Workspace 或 ApiKey 上。 |
 
-**Workspace 是隔离的根**。所有查询、所有配置、所有审计数据都必须带 `workspace_id` 过滤。这一点在 `10-storage.md` 的每个表设计里都体现。
+**Workspace 是隔离的根**。所有查询、所有配置、所有审计数据都必须带 `workspace_id` 过滤。这一点在 `15-storage.md` 的每个表设计里都体现。
 
 ---
 
@@ -196,7 +196,7 @@ flowchart TB
 | `x-api-key: sk-argus-...` | Anthropic SDK 风格 |
 | `api-key: sk-argus-...` | Azure SDK 风格 |
 
-三者都接受。**提取后立刻从转发的 header 中剥离**（`02-data-plane.md` §6.4）。
+三者都接受。**提取后立刻从转发的 header 中剥离**（`06-data-plane.md` §6.4）。
 
 ### 6.2 KeyCache
 
@@ -326,6 +326,50 @@ fn merge(ws: &WorkspaceLimits, key: &ApiKeyConfig) -> EffectiveLimits {
 
 ---
 
+### 7.2 防枚举（硬要求）
+
+以下三种情况必须对调用方**不可区分**：
+
+```text
+profile 根本不存在
+profile 存在但这把 Key 无权访问
+profile 存在、有权，但被禁用
+```
+
+前两种统一返回 `404 provider_not_found`。第三种可以返回 503 —— 因为能走到
+这一步说明调用方本来就有权知道它存在。
+
+不这么做的后果：攻击者拿一把低权限 Key，用 `/provider/{猜测}/…` 逐个探测，
+就能把租户配了哪些供应商、甚至 Profile 命名习惯（`openai-prod` / `openai-dev`）
+摸清楚。
+
+同理，Raw 模式的 `target_denied` 不区分"私有地址"与"DNS 失败"
+（`13-ssrf-protection.md` §8）。
+
+---
+
+### 7.3 两种上游凭据模式
+
+| | Managed Credential（Injected） | Passthrough |
+|---|---|---|
+| 谁持有供应商凭据 | Argus（加密存储） | 客户端 |
+| 客户端发什么 | Argus 的 API Key | 上游自己的凭据 |
+| 主要用于 | Managed 模式（**主路径**） | Raw 模式、调试、特殊供应商 |
+| Argus 能审计到凭据吗 | 只有 fingerprint | 只有 fingerprint（同样脱敏） |
+| 风险 | 凭据集中，master key 是 SPOF | 客户端各自管理，Argus 无法统一轮换 |
+
+**权限边界必须分清**：
+
+1. Managed 模式下，客户端带的 Argus Key 在转发前**必须删除**，
+   绝不能泄漏给上游（`05-transparent-proxy.md` §5.1）。
+2. Passthrough 模式下，Argus **不看**也**不存**客户端的上游凭据，
+   只在审计里记 `credential_mode = passthrough` 与 fingerprint。
+3. `allow_raw_proxy` + `injected` 的组合**必须**配 target allowlist，
+   否则调用方能用你保管的凭据打任意地址。配置期强制
+   （`13-ssrf-protection.md` §9）。
+
+---
+
 ## 8. 限流与配额（P4）
 
 ### 8.1 三个维度
@@ -435,7 +479,7 @@ match redis_limiter.check(key).await {
 
 ## 9. Data Model
 
-见 `10-storage.md` §5 的完整 DDL。此处只列关键字段：
+见 `15-storage.md` §5 的完整 DDL。此处只列关键字段：
 
 ```sql
 -- 核心索引

@@ -1,7 +1,7 @@
-# 13 · 部署
+# 18 · 部署
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 前置：`12-reliability.md`（资源模型与停机）
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 前置：`17-reliability.md`（资源模型与停机）
 
 ---
 
@@ -383,7 +383,7 @@ store_raw_events      = false
 minimal               = false         # true = 只存元数据（nano profile 建议开）
 
 [storage.audit]
-require_durable = false    # ⚠ true = 审计写失败则拒绝请求，PG 变成 Data Plane 硬依赖（ADR-006）
+require_durable = false    # ⚠ true = 审计写失败则拒绝请求，PG 变成 Data Plane 硬依赖（ADR-012）
 
 [storage.encryption]
 encrypt_payloads = false   # 开启后无法用 PG 检索内容（08 §9.3）
@@ -464,6 +464,40 @@ profile = "small"    # nano | small | medium | large
 | `large` | 16C32G+，多实例 | `max_active_streams=50000`，`observation.default_mode="lite"`，建议启用 Redis |
 
 profile 只设置默认值，任何显式配置都会覆盖它。`argus doctor` 会检查配置与实际资源是否匹配并给出建议。
+
+---
+
+
+## 5.9 前置组件的硬约束（Raw 模式）
+
+Raw 模式的**直接形式** `/raw/https://host/path` 依赖 `//` 不被折叠。
+实测 hyper/axum 自己不会动它（`04-raw-proxy-mode.md` §5.1），但前面站着的东西会：
+
+| 组件 | 默认 | 要做什么 |
+|---|---|---|
+| nginx | `merge_slashes on`（**默认折叠**） | 加 `merge_slashes off;` |
+| Traefik | 不折叠 | 检查是否启用了 path 规范化中间件 |
+| Envoy / Istio | `normalize_path` 可配 | 关掉，或改用分段形式 |
+| 云厂商 LB / API Gateway | 多数折叠且**不可关** | 只能用分段形式 |
+| CDN | 通常折叠 | 同上 |
+
+```nginx
+server {
+    merge_slashes off;          # 不加这行，/raw/https://… 会变成 /raw/https:/…
+    location / {
+        proxy_pass http://argus;
+        proxy_http_version 1.1;
+        proxy_buffering off;    # 流式必须关，否则 TTFT 会被缓冲吃掉
+        proxy_read_timeout 900s;
+    }
+}
+```
+
+**结论写在部署文档最前面：不确定前面有什么，就用分段形式
+`/raw/{scheme}/{authority}/{path}`。** 它全程没有连续斜杠，穿得过任何规范化。
+
+> `proxy_buffering off` 与 Raw 模式无关但同样致命：开着它 nginx 会把整个
+> SSE 响应缓冲完再发给客户端，TTFT 直接变成总时长。
 
 ---
 

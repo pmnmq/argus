@@ -1,6 +1,6 @@
 # 01 · 总体架构
 
-> 状态：Draft v1 · 最后更新 2026-08-19
+> 状态：Draft v2 · 最后更新 2026-08-20
 > 前置阅读：`00-overview.md`（尤其是术语表）
 
 ---
@@ -38,7 +38,7 @@
 
 - Rust 无 GC，所有跨 task 共享数据必须显式 `Arc`；这反而使"配置快照"方案非常自然。
 - Tokio 是 work-stealing 多线程运行时；主链路与观测 task 会被调度到同一组线程上，因此**观测 task 消耗 CPU 会间接影响主链路**。这是必须承认的耦合，缓解手段见 §6.4。
-- Hyper 1.x 的 `Body` trait 是 poll-based，这让 Tee 可以实现为一个零成本的 Body 包装器（见 `02-data-plane.md` §5）。
+- Hyper 1.x 的 `Body` trait 是 poll-based，这让 Tee 可以实现为一个零成本的 Body 包装器（见 `06-data-plane.md` §5）。
 
 ---
 
@@ -52,14 +52,14 @@ flowchart TB
         SRV["argus-server<br/>bin: 配置加载 / 依赖注入 / 生命周期"]
     end
     subgraph L3["L3 · 能力层"]
-        PRX["argus-proxy<br/>Ingress · Gatekeeper · Router · Upstream · Tee · Observer"]
+        PRX["argus-proxy<br/>Ingress · Gatekeeper · Resolver · Target · Upstream · Tee · Observer"]
         STO["argus-storage<br/>AuditSink · Spool · Repository · migrations"]
     end
     subgraph L2["L2 · 领域层"]
-        PROTO["argus-protocol<br/>SseFramer · ProtocolParser · Accumulator · IR<br/>trait InteractionSink<br/>（无 tokio / 无 IO）"]
+        PROTO["argus-protocol<br/>Framer · ProtocolObserver · Accumulator · IR<br/>trait InteractionSink<br/>（无 tokio / 无 IO）"]
     end
     subgraph L1["L1 · 基础层"]
-        CORE["argus-core<br/>类型 · 配置 · 错误 · TraceContext · Protocol/ProviderKind"]
+        CORE["argus-core<br/>类型 · 配置 · 错误 · TraceContext<br/>ResolvedTarget · ObserverKind · ProviderProfile"]
     end
 
     SRV --> PRX
@@ -71,12 +71,12 @@ flowchart TB
     PROTO --> CORE
 ```
 
-**依赖规则（CI 强制检查，见 `15-testing-strategy.md` §9）**：
+**依赖规则（CI 强制检查，见 `20-testing-strategy.md` §9）**：
 
 1. 箭头只能向下。`argus-core` 不依赖任何内部 crate。
 2. `argus-protocol` **禁止**依赖 `tokio`、`sqlx`、`hyper`。它是纯计算库：输入 `&[u8]`，输出 `ObservedEvent`。这保证它可以用普通单元测试以微秒级速度迭代，且天然不会阻塞任何东西。
 3. `argus-proxy` **禁止**依赖 `argus-storage` 的具体类型。它通过 `argus-protocol` 中定义的 `trait InteractionSink` 与存储解耦，由 `argus-server` 注入实现。这样 Data Plane 在编译期就不可能直接调用数据库。
-   （该 trait 放在 `argus-protocol` 而非 `argus-core`，因为它的签名引用 `ObservedInteraction`；放进 core 会造成 `core ↔ protocol` 的循环依赖。详见 `10-storage.md` §4.1。）
+   （该 trait 放在 `argus-protocol` 而非 `argus-core`，因为它的签名引用 `ObservedInteraction`；放进 core 会造成 `core ↔ protocol` 的循环依赖。详见 `15-storage.md` §4.1。）
 
 > 规则 3 是"Data Plane 不被数据库阻塞"的**编译期保证**，比代码评审可靠。
 
@@ -84,15 +84,16 @@ flowchart TB
 
 | 模块 | 职责 | 明确不负责 |
 |------|------|-----------|
-| Ingress | HTTP 监听、路由表、协议识别、请求体准入（size limit）、错误响应格式化 | 认证、选路 |
-| Gatekeeper | API Key 校验、workspace 解析、RBAC、模型/provider 白名单、配额、限流 | 内容检查 |
+| Ingress | HTTP 监听、路由表、**按原始字节**切分 path、请求体准入（size limit）、错误响应格式化 | 认证、解析 target |
+| Gatekeeper | API Key 校验、workspace 解析、RBAC、**profile 白名单 / `allow_raw_proxy`**、配额、限流 | 内容检查 |
 | PreflightGuard | 请求内容的规则检查，产出 `SecurityVerdict` | 流式内容、响应内容 |
-| Router | logical model → `RouteDecision`；健康度/权重/优先级；熔断状态查询 | 发起 HTTP |
+| Resolver | URL → `ResolvedTarget`（Managed 与 Raw 两个实现）；熔断状态查询 | 发起 HTTP、判断 target 是否安全 |
+| Target Policy | 判定上游地址是否允许连接：scheme / IP / 端口 / DNS rebinding | 解析 URL |
 | Upstream | 连接池、header 变换、发起请求、超时、retry 状态机 | 解析 body |
 | Tee | 逐 frame 复制 `Bytes` 到旁路 channel | 理解字节含义 |
-| Observer | 驱动 SseFramer→ProtocolParser→Accumulator，触发 StreamGuard/PostGuard，提交给 Sink | 影响主链路 |
-| SseFramer | 字节 → SSE frame（`event:` / `data:` / 空行） | 理解 JSON |
-| ProtocolParser | frame → `ObservedEvent` | 累积状态 |
+| Observer | 驱动 Framer→ProtocolObserver→Accumulator，触发 StreamGuard/PostGuard，提交给 Sink | 影响主链路 |
+| Framer | 字节 → 逻辑帧（`SseFramer`；将来 `EventStreamFramer`） | 理解 JSON |
+| ProtocolObserver | 逻辑帧 → `ObservedEvent`，由 `ObserverKind` 选择 | 累积状态 |
 | Accumulator | event 序列 → `ObservedInteraction` | 解析字节 |
 | StreamGuard | 流中安全检查；`gate_tools` 模式下的扣留决策 | 请求时检查 |
 | PostGuard | 完整交互的安全检查（含可选 LLM detector） | 阻断已发出的流 |
@@ -116,7 +117,7 @@ flowchart TB
 
 **关键**：request task 结束时**不 await** observer task。observer 拿着自己需要的一切（`Arc<RouteDecision>`、`TraceContext`、channel receiver），独立跑完。这是"Observer 不阻塞 Proxy"在 task 层面的体现。
 
-反过来，observer task 需要在进程停机时被优雅收敛——见 `12-reliability.md` §3。
+反过来，observer task 需要在进程停机时被优雅收敛——见 `17-reliability.md` §3。
 
 ### 6.2 唯一的跨界通道
 
@@ -139,7 +140,7 @@ pub struct TeeHandle {
 
 主链路对这个 channel **只做 `try_send`，永不 `send().await`**。这条规则没有例外。
 
-`gap_before` 的存在是为了让 ProtocolParser 知道"这里断了 N 字节"，从而进入 resync 状态而不是解析出错误结果。详见 `05-streaming.md` §6。
+`gap_before` 的存在是为了让 ProtocolObserver 知道"这里断了 N 字节"，从而进入 resync 状态而不是解析出错误结果。详见 `10-streaming.md` §6。
 
 ### 6.3 背压方向
 
@@ -156,9 +157,9 @@ slow observer → channel 满 → try_send 失败 → 丢弃并累加 gap → �
 
 observer task 与 request task 共享 tokio worker 线程池，因此观测的 CPU 开销会稀释主链路吞吐。缓解措施，按优先级：
 
-1. **让解析本身足够便宜**：SseFramer 与 ProtocolParser 走"扫描 + 借用"而非"反序列化到 Value"（见 `05-streaming.md` §7）。
+1. **让解析本身足够便宜**：SseFramer 与 ProtocolObserver 走"扫描 + 借用"而非"反序列化到 Value"（见 `10-streaming.md` §7）。
 2. **昂贵的东西不在 observer task 里做**：LLM detector、正则大规模匹配、压缩、序列化，全部下沉到 `AuditSink` 的批处理 worker（固定小数量的常驻 task）或 `tokio::task::spawn_blocking` 池。
-3. **可选的运行时隔离**：配置 `runtime.split=true` 时，创建第二个 Tokio Runtime（少量线程）专跑 observer 与 sink。默认关闭——因为它引入跨 runtime 的复杂度，只有在实测确认干扰显著时才启用。见 `12-reliability.md` §7。
+3. **可选的运行时隔离**：配置 `runtime.split=true` 时，创建第二个 Tokio Runtime（少量线程）专跑 observer 与 sink。默认关闭——因为它引入跨 runtime 的复杂度，只有在实测确认干扰显著时才启用。见 `17-reliability.md` §7。
 
 > 诚实说明：方案 3 不是免费的。跨 runtime 传递 `Bytes` 没问题，但要小心不要把带 `!Send` 状态或 runtime-bound 资源（如 sqlx pool）跨过去。默认关闭是刻意的。
 
@@ -196,7 +197,7 @@ impl ConfigHandle {
 - 更新：后台 `ConfigRefresher` task 周期（默认 15s）或收到 Control Plane 的通知后，从 PG 全量重建一个新 `ConfigSnapshot`，`store()` 原子替换。
 - 一致性：单个请求在入口处 `load()` 一次，整个请求生命周期用同一个快照。这保证请求内配置视图不会中途变化。
 
-**API Key 不放进 ConfigSnapshot**（数量可能上万且变化频繁），而是走独立的 `KeyCache`（见 `09-auth.md` §5）。
+**API Key 不放进 ConfigSnapshot**（数量可能上万且变化频繁），而是走独立的 `KeyCache`（见 `14-auth-and-credentials.md` §5）。
 
 ### 7.3 Control Plane 缺席时
 
@@ -231,7 +232,7 @@ role = "all"      # 默认：data plane + control plane 同进程
 - 观测拖慢 → bounded channel + `try_send` 已经隔离。
 - 观测 OOM → accumulator 有硬上限。
 
-真正无法用 task 隔离的只有"进程级 OOM/abort"，这个风险用 §9 与 `12-reliability.md` 的资源上限来管控。
+真正无法用 task 隔离的只有"进程级 OOM/abort"，这个风险用 §9 与 `17-reliability.md` 的资源上限来管控。
 
 ---
 
@@ -243,7 +244,7 @@ role = "all"      # 默认：data plane + control plane 同进程
 panic = "unwind"   # 绝不可改成 abort
 ```
 
-理由：`panic = "abort"` 会让**任何一个 ProtocolParser 的 bug 直接杀死整个进程**，连带上千条正在进行的 SSE 连接。这与 G4 直接冲突。
+理由：`panic = "abort"` 会让**任何一个 ProtocolObserver 的 bug 直接杀死整个进程**，连带上千条正在进行的 SSE 连接。这与 G4 直接冲突。
 
 配套措施：
 
@@ -307,15 +308,15 @@ sequenceDiagram
 
 | 故障 | 影响面 | 行为 | 依据 |
 |------|--------|------|------|
-| PostgreSQL 不可用 | Control Plane 写失败；审计落库失败 | Data Plane 继续（ConfigSnapshot 仍在内存；审计转 Spool；auth 用 stale cache 至多 15min） | `10-storage.md` §8 |
-| Redis 不可用（若启用） | 分布式限流失效 | 降级为本地限流，不拒绝服务 | `12-reliability.md` §6 |
-| ProtocolParser panic | 单个 interaction 的观测 | catch_unwind → 标记 `ParserFailed` → 继续透传 | §9 |
-| Observer channel 满 | 单个 interaction 的观测完整性 | 丢字节 + 记 gap → interaction 标记 `Degraded` | `05-streaming.md` §6 |
-| AuditSink 队列满 | 审计完整性 | 按策略：丢最旧 / 丢新 / 降级只存摘要 | `10-storage.md` §7 |
-| Provider 5xx / 超时 | 单请求 | 按 retry 状态机决定 retry/fallback/透传错误 | `07-provider-routing.md` §6 |
-| Client 断开 | 单请求 | 取消传播到上游（drop 连接）+ observer 收到 `ClientAborted` 并落库 partial | `02-data-plane.md` §8 |
+| PostgreSQL 不可用 | Control Plane 写失败；审计落库失败 | Data Plane 继续（ConfigSnapshot 仍在内存；审计转 Spool；auth 用 stale cache 至多 15min） | `15-storage.md` §8 |
+| Redis 不可用（若启用） | 分布式限流失效 | 降级为本地限流，不拒绝服务 | `17-reliability.md` §6 |
+| ProtocolObserver panic | 单个 interaction 的观测 | catch_unwind → 标记 `ParserFailed` → 继续透传 | §9 |
+| Observer channel 满 | 单个 interaction 的观测完整性 | 丢字节 + 记 gap → interaction 标记 `Degraded` | `10-streaming.md` §6 |
+| AuditSink 队列满 | 审计完整性 | 按策略：丢最旧 / 丢新 / 降级只存摘要 | `15-storage.md` §7 |
+| Provider 5xx / 超时 | 单请求 | 按 retry 状态机决定 retry/fallback/透传错误 | `08-provider-profiles.md` §6 |
+| Client 断开 | 单请求 | 取消传播到上游（drop 连接）+ observer 收到 `ClientAborted` 并落库 partial | `06-data-plane.md` §8 |
 | ConfigRefresher 失败 | 配置滞后 | 保留上一个快照继续服务，记指标；连续失败告警 | §7.2 |
-| 进程 OOM | 全部 | 由内存上限、accumulator cap、连接数上限共同预防；见资源模型 | `12-reliability.md` §8 |
+| 进程 OOM | 全部 | 由内存上限、accumulator cap、连接数上限共同预防；见资源模型 | `17-reliability.md` §8 |
 
 ---
 
@@ -324,7 +325,7 @@ sequenceDiagram
 | 我们选择的 | 放弃的 | 代价 | 为何接受 |
 |-----------|-------|------|---------|
 | 单进程 | 进程级故障隔离 | 一次 abort 断掉所有连接 | 用 task 隔离 + panic=unwind + 资源上限覆盖 90% 场景，换来 µs 级 tee 与单二进制部署 |
-| `try_send` 丢弃 | 观测 100% 完整 | 高压下观测有损 | 有损观测 >> 阻塞主链路；且降级优先在请求粒度（见 `05-streaming.md` §6.3），不是无差别丢字节 |
+| `try_send` 丢弃 | 观测 100% 完整 | 高压下观测有损 | 有损观测 >> 阻塞主链路；且降级优先在请求粒度（见 `10-streaming.md` §6.3），不是无差别丢字节 |
 | 配置快照 + 周期 refresh | 配置强一致 | 变更最长 15s 生效 | 网关配置本就不需要强一致；换来 PG 故障隔离与 O(1) 读 |
 | 请求体全量 buffer | 超大请求的内存 | 每请求最多 `max_request_bytes`（默认 8MB） | PreflightGuard 与 retry 都需要可重放的 body；流式上传的 AI 请求极罕见 |
 | `argus-protocol` 无 tokio | 解析器无法自己做 IO | 需要外层驱动 | 换来纯函数可测性 + 编译期保证不阻塞 |
@@ -342,14 +343,14 @@ Tower layer 拿到的是完整的 `Request`/`Response`，对流式响应而言�
 **C1. 把 Observation 做成外部进程，通过 Unix socket 传字节。**
 见 §8 方案 B。字节必须真实拷贝并跨进程，TTFT 与内存双输。**否决**。
 
-**D1. 用 `async-trait` 定义 ProtocolParser。**
+**D1. 用 `async-trait` 定义 ProtocolObserver。**
 解析是纯 CPU 工作，async 只带来虚表与 Future 开销。用同步 trait + 泛型/enum dispatch。**否决 async**。
 
 ---
 
 ## 14. Decision
 
-1. Modular Monolith，5 个 crate（见 `14-rust-project-structure.md`）。
+1. Modular Monolith，5 个 crate（见 `19-rust-project-structure.md`）。
 2. 主链路与观测链路唯一通过 bounded mpsc + `try_send` 相连。
 3. `argus-protocol` 为纯计算 crate，编译期禁止 IO 依赖。
 4. `argus-proxy` 通过 `argus-protocol::InteractionSink` trait 与存储解耦，编译期禁止直连数据库。

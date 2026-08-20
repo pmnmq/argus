@@ -1,7 +1,7 @@
-# 12 · 可靠性与资源模型
+# 17 · 可靠性
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 前置：`05-streaming.md` §8（内存模型）、`10-storage.md` §8（Spool）
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 前置：`10-streaming.md` §8（内存模型）、`15-storage.md` §8（Spool）
 
 ---
 
@@ -51,7 +51,7 @@ Argus 处于所有 AI 流量的关键路径上。它挂掉 = 所有 AI 功能挂
 | request body 副本（`Bytes`，典型 8KB 对话） | 8 KB | 全量 buffer，见 `02` §6.2 |
 | Tee channel 在途 | ~4 KB | 稳态很低，上限 256 KB |
 | SseFramer `BytesMut` | 4 KB | 初始容量，上限 1 MB |
-| ProtocolParser 状态 | 1 KB | block 索引表 |
+| ProtocolObserver 状态 | 1 KB | block 索引表 |
 | Accumulator 正文（典型 2k token 回复） | 8 KB | 上限 1 MB |
 | Accumulator 结构（BTreeMap + 元数据） | 2 KB | |
 | request task future | 1.5 KB | |
@@ -89,13 +89,13 @@ Argus 处于所有 AI 流量的关键路径上。它挂掉 = 所有 AI 功能挂
 | hyper 帧处理 | ~2 µs/frame | 0.4 核 |
 | Tee（clone + try_send） | ~0.1 µs/frame | 0.02 核 |
 | SseFramer | ~0.3 µs/frame | 0.06 核 |
-| ProtocolParser | ~1.5 µs/frame | 0.3 核 |
+| ProtocolObserver | ~1.5 µs/frame | 0.3 核 |
 | Accumulator | ~0.1 µs/frame | 0.02 核 |
 | **合计** | | **~0.9 核** |
 | 加上请求级开销（auth/preflight/route，按 10 req/s 新建流） | | +0.1 核 |
 | **总计** | | **~1.0 核** |
 
-在 4 核机器上留有 3 核余量。**这是估算，压测时必须验证**（`11-observability.md` §6.4）。
+在 4 核机器上留有 3 核余量。**这是估算，压测时必须验证**（`16-opentelemetry.md` §6.4）。
 
 ### 4.4 文件描述符
 
@@ -441,7 +441,7 @@ spec:
 |------|----------|------|
 | Argus 实例 | 单实例时是 | 多实例 + LB（无状态，天然可水平扩展） |
 | PostgreSQL | **部分是** | Data Plane 可用；但配置变更与审计受影响。可用 PG 主从/托管 HA |
-| Master Key | **是**（灾难级） | 必须离线备份；`13-deployment.md` §7 强调 |
+| Master Key | **是**（灾难级） | 必须离线备份；`18-deployment.md` §7 强调 |
 | Provider | 否 | 多 provider fallback |
 | Spool 磁盘 | 否（只影响审计） | |
 | Redis | 否 | 可选 |

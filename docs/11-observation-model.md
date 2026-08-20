@@ -1,7 +1,7 @@
-# 06 · Observation Model（IR + Accumulator）
+# 11 · Observation Model
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 前置：`04-protocols.md`（线上格式）、`05-streaming.md`（字节层）
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 前置：`09-observers.md`（线上格式）、`10-streaming.md`（字节层）
 
 ---
 
@@ -30,7 +30,7 @@
 
 - **不做统一请求格式**。IR 只描述"发生了什么"，不描述"如何重放"。想重放请用 raw request。
 - 不做 token 级别的对齐（我们看到的是 provider 给的 delta，不是真正的 token）。
-- 不做语义理解（那是 `08-security.md` 的事）。
+- 不做语义理解（那是 `12-security.md` 的事）。
 
 ### 3.1 为什么 IR 不能用于重建请求
 
@@ -450,7 +450,7 @@ fn close_tool_block(&mut self, st: &mut BlockState) {
 }
 ```
 
-用 `Box<RawValue>` 而不是 `Value`：我们只需要验证它是合法 JSON 并原样存储，不需要遍历结构。这避免了一次完整的 DOM 构建。（安全检测需要遍历时，由 `08-security.md` 在自己的路径里做。）
+用 `Box<RawValue>` 而不是 `Value`：我们只需要验证它是合法 JSON 并原样存储，不需要遍历结构。这避免了一次完整的 DOM 构建。（安全检测需要遍历时，由 `12-security.md` 在自己的路径里做。）
 
 **绝不尝试"修复"截断的 JSON**（补齐括号、补引号）。修复出来的参数可能与模型真实意图不同，写进审计就是伪造数据。宁可留一个明确的 `Invalid`。
 
@@ -607,7 +607,7 @@ selective_tail = 8
 方案 3 是启发式的，会有误判（不同用户发了完全相同的开头）。因此：
 - 指纹加上 `workspace_id` 与 `api_key_id` 作为盐，跨租户绝不会碰撞。
 - 匹配结果标记 `conversation_link = Inferred`，与 `Explicit` 区分。
-- 安全策略若基于会话历史做判断，**只信任 `Explicit`**（见 `08-security.md` §8）。
+- 安全策略若基于会话历史做判断，**只信任 `Explicit`**（见 `12-security.md` §8）。
 
 ---
 
@@ -653,7 +653,7 @@ selective_tail = 8
 Responses 的二维坐标会被压平，`output_index` 与 `content_index` 的关系丢失。**否决**。
 
 **D. 流式解析 tool arguments（增量 JSON parser）。**
-可以在流进行中就知道参数结构，对实时安全检测有价值。但：需要一个支持"部分输入"的 JSON parser（如 `struson` 风格），复杂度高，且部分解析的结果本身可能误导。**推迟到 Phase 3**，作为 `gate_tools` 安全模式的可选增强。当前 `gate_tools` 在 BlockStop 时检查已经足够（见 `08-security.md` §6.2）。
+可以在流进行中就知道参数结构，对实时安全检测有价值。但：需要一个支持"部分输入"的 JSON parser（如 `struson` 风格），复杂度高，且部分解析的结果本身可能误导。**推迟到 Phase 3**，作为 `gate_tools` 安全模式的可选增强。当前 `gate_tools` 在 BlockStop 时检查已经足够（见 `12-security.md` §6.2）。
 
 **E. 把 usage 估算写进真实字段。**
 会让计费数据不可区分。**强烈否决**。

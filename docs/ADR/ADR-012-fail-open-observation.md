@@ -1,8 +1,8 @@
-# ADR-006 · 安全与可用性：fail-open 为默认
+# ADR-012 · 观测 fail-open，认证 fail-close
 
 - **状态**：Accepted
 - **日期**：2026-08-19
-- **相关**：`08-security.md`、`09-auth.md`、`10-storage.md`、`12-reliability.md`
+- **相关**：`12-security.md`、`14-auth-and-credentials.md`、`15-storage.md`、`17-reliability.md`
 
 ---
 
@@ -111,7 +111,7 @@ fail-open 的危险在于它是**静默的**：安全模块挂了，请求照常
 | `argus_spool_dropped_bytes_total` | **审计数据永久丢失** |
 | `argus_llm_detector_skipped_total` | 检测被跳过 |
 
-`11-observability.md` §10 给出了对应的告警规则。
+`16-opentelemetry.md` §10 给出了对应的告警规则。
 
 > **没有指标的 fail-open 等于没有安全策略。** 这条必须在实现时严格执行。
 
@@ -130,7 +130,7 @@ timeout = "200ms"          # 同时必须调大超时，否则误拒率高
 require_durable = true     # 审计写入失败则拒绝请求
 ```
 
-**`require_durable = true` 的代价必须说清楚**：它把 PostgreSQL 变成 Data Plane 的硬依赖。PG 挂掉 = 网关完全不可用。这与 `10-storage.md` 的整个 Spool 设计相悖，只应在"审计缺失比服务中断更严重"的场景（如受监管的金融/医疗）启用。
+**`require_durable = true` 的代价必须说清楚**：它把 PostgreSQL 变成 Data Plane 的硬依赖。PG 挂掉 = 网关完全不可用。这与 `15-storage.md` 的整个 Spool 设计相悖，只应在"审计缺失比服务中断更严重"的场景（如受监管的金融/医疗）启用。
 
 文档中必须用明确的警告框标注这个选项。
 
@@ -138,7 +138,7 @@ require_durable = true     # 审计写入失败则拒绝请求
 
 ## 已经输出后发现风险的处置
 
-这是 fail-open 立场下最需要诚实回答的问题（`08-security.md` §6.4）。
+这是 fail-open 立场下最需要诚实回答的问题（`12-security.md` §6.4）。
 
 **已经写入客户端 socket 的字节无法收回。没有任何技术手段能改变这一点。**
 
@@ -191,7 +191,7 @@ ToolGate 是本设计中**唯一**违反"观测不影响主链路"原则的机�
 ### 正面
 
 - Argus 的可用性不受安全/观测/存储组件的可靠性拖累。
-- PostgreSQL 故障时 Data Plane 完全正常（`10-storage.md` §8.5）。
+- PostgreSQL 故障时 Data Plane 完全正常（`15-storage.md` §8.5）。
 - Redis 故障时限流降级而非拒绝服务。
 - 安全模块可以快速迭代（新规则出 bug 不会造成事故），配合 `suppressions` 可无需发版止损。
 
@@ -200,9 +200,9 @@ ToolGate 是本设计中**唯一**违反"观测不影响主链路"原则的机�
 | 负面 | 缓解 |
 |------|------|
 | 安全模块失效是静默的 | **每个 fail-open 点必须有指标 + 告警**（原则 3） |
-| PG 故障期间配额可能超额 | 已量化并文档化（`09-auth.md` §8.4） |
+| PG 故障期间配额可能超额 | 已量化并文档化（`14-auth-and-credentials.md` §8.4） |
 | 吊销的 Key 在 PG 故障时最多多活 15 分钟 | 正常路径是 15 秒；15 分钟是故障期的上界 |
-| 高压时部分请求无观测 | 请求粒度降级保证被观测的数据完整（`ADR-005` M4） |
+| 高压时部分请求无观测 | 请求粒度降级保证被观测的数据完整（`ADR-009` M4） |
 | 高合规用户需要额外配置 | 提供 `fail_mode = "close"` 与明确的代价说明 |
 
 ### 对文档的要求

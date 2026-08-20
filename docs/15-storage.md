@@ -1,7 +1,7 @@
-# 10 · 存储设计
+# 15 · 存储
 
-> 状态：Draft v1 · 最后更新 2026-08-19
-> 前置：`06-observation-model.md`（要存什么）、`01-architecture.md` §5.1（编译期解耦）
+> 状态：Draft v2 · 最后更新 2026-08-20
+> 前置：`11-observation-model.md`（要存什么）、`01-architecture.md` §5.1（编译期解耦）
 
 ---
 
@@ -56,7 +56,7 @@ argus-proxy   ──┼──→ argus-protocol ──→ argus-core
 argus-server  ──┘
 ```
 
-`argus-proxy` 的 `Cargo.toml` 中**没有** `sqlx` / `argus-storage` 依赖。`argus-server` 在启动时把 `Arc<PgSink>` 注入进去。CI 用 `cargo tree` 检查这条边不存在（见 `15-testing-strategy.md` §9）。
+`argus-proxy` 的 `Cargo.toml` 中**没有** `sqlx` / `argus-storage` 依赖。`argus-server` 在启动时把 `Arc<PgSink>` 注入进去。CI 用 `cargo tree` 检查这条边不存在（见 `20-testing-strategy.md` §9）。
 
 ### 4.2 写入管线
 
@@ -119,7 +119,10 @@ CREATE TABLE api_keys (
     allowed_models     TEXT[],                 -- NULL = 不限制
     allowed_providers  UUID[],
     allowed_tools      TEXT[],
-    allowed_protocols  TEXT[] NOT NULL DEFAULT ARRAY['openai_chat','openai_responses','anthropic_messages'],
+    -- 这把 Key 允许访问哪些 Profile。NULL = 全部（02 §11 的防枚举依赖它）
+    allowed_profiles   TEXT[],
+    -- Raw 模式是显式权限，默认关（04 §11）
+    allow_raw_proxy    BOOLEAN NOT NULL DEFAULT false,
     ip_allowlist    CIDR[],
     limits          JSONB NOT NULL DEFAULT '{}',   -- rate / token / cost
     policy_id       UUID REFERENCES security_policies(id),
@@ -130,64 +133,81 @@ CREATE TABLE api_keys (
 );
 CREATE INDEX ON api_keys (workspace_id) WHERE revoked_at IS NULL;
 
-CREATE TABLE providers (
-    id          UUID PRIMARY KEY,
-    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,  -- NULL = 全局
-    name        TEXT NOT NULL,
-    kind        TEXT NOT NULL,           -- ProviderKind
-    dialect     JSONB NOT NULL DEFAULT '{}',
-    enabled     BOOLEAN NOT NULL DEFAULT true,
-    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (workspace_id, name)
-);
-
-CREATE TABLE provider_endpoints (
-    id          UUID PRIMARY KEY,
-    provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-    base_url    TEXT NOT NULL,
-    region      TEXT,
-    weight      SMALLINT NOT NULL DEFAULT 100,
-    priority    SMALLINT NOT NULL DEFAULT 100,
-    timeouts    JSONB NOT NULL DEFAULT '{}',
+CREATE TABLE provider_profiles (
+    id            UUID PRIMARY KEY,
+    workspace_id  UUID REFERENCES workspaces(id) ON DELETE CASCADE,  -- NULL = 全局
+    -- URL 里出现的那个名字。字符集受限，见 02-routing-model.md OQ-R1
+    name          TEXT NOT NULL CHECK (name ~ '^[a-z0-9][a-z0-9-]{0,62}$'),
+    display_name  TEXT NOT NULL DEFAULT '',
+    -- 仅用于 UI 模板与指标分组。Data Plane 不得据此分支（08 §4.1）
+    provider_type TEXT NOT NULL,
+    base_url      TEXT NOT NULL,
+    -- 默认 observer，可被 observer_rules 细化（09 §4.2）
+    observer      TEXT NOT NULL,
+    -- injected / passthrough / none
+    credential_mode TEXT NOT NULL,
+    credential_id UUID REFERENCES provider_credentials(id) ON DELETE RESTRICT,
+    credential_header TEXT,
+    credential_format TEXT,
     extra_headers JSONB NOT NULL DEFAULT '{}',
-    enabled     BOOLEAN NOT NULL DEFAULT true
+    dialect       JSONB NOT NULL DEFAULT '{}',
+    timeouts      JSONB NOT NULL DEFAULT '{}',
+    retry         JSONB NOT NULL DEFAULT '{}',
+    target_policy JSONB,                        -- NULL = 用全局策略
+    security_policy_id UUID,
+    enabled       BOOLEAN NOT NULL DEFAULT true,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (workspace_id, name),
+    -- injected 时 header/format 必填（08 §8）
+    CHECK (credential_mode <> 'injected'
+           OR (credential_id IS NOT NULL AND credential_header IS NOT NULL
+               AND credential_format IS NOT NULL))
 );
 
 CREATE TABLE provider_credentials (
     id          UUID PRIMARY KEY,
-    provider_id UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-    kind        TEXT NOT NULL,           -- bearer / api_key / sigv4 / oauth2
-    ciphertext  BYTEA NOT NULL,          -- AES-256-GCM
+    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+    ciphertext  BYTEA NOT NULL,          -- AES-256-GCM，master key 不入库
     nonce       BYTEA NOT NULL,
-    fingerprint TEXT NOT NULL,           -- sha256 前 12 字符，用于识别
+    fingerprint TEXT NOT NULL,           -- base64(sha256(明文))[..12]，用于"我配的是哪一把"
     is_active   BOOLEAN NOT NULL DEFAULT true,
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE models (                        -- LogicalModel
-    name          TEXT PRIMARY KEY,
+-- Observer 选择规则。**有序**，首个命中生效（09 §4.2）
+CREATE TABLE observer_rules (
+    id            UUID PRIMARY KEY,
     workspace_id  UUID REFERENCES workspaces(id) ON DELETE CASCADE,
-    aliases       TEXT[] NOT NULL DEFAULT '{}',
-    protocol      TEXT NOT NULL,
-    capabilities  JSONB NOT NULL,
-    routing       JSONB NOT NULL DEFAULT '{}',
-    deprecated_at TIMESTAMPTZ
+    ord           INT NOT NULL,
+    match_profile TEXT,
+    match_host_suffix TEXT,
+    match_path_prefix TEXT,
+    match_method  TEXT,
+    match_content_type TEXT,
+    observer      TEXT NOT NULL,
+    UNIQUE (workspace_id, ord)
 );
 
-CREATE TABLE provider_models (               -- ModelBinding
-    id                UUID PRIMARY KEY,
-    model_name        TEXT NOT NULL REFERENCES models(name) ON DELETE CASCADE,
-    provider_id       UUID NOT NULL REFERENCES providers(id) ON DELETE CASCADE,
-    provider_model    TEXT NOT NULL,
-    deployment_name   TEXT,
-    priority          SMALLINT NOT NULL DEFAULT 100,
-    weight            SMALLINT NOT NULL DEFAULT 100,
-    capability_overrides JSONB NOT NULL DEFAULT '{}',
-    pricing           JSONB,
-    enabled           BOOLEAN NOT NULL DEFAULT true,
-    UNIQUE (model_name, provider_id, provider_model)
+-- Target Policy（SSRF 边界，13-ssrf-protection.md §5）
+CREATE TABLE target_policies (
+    id           UUID PRIMARY KEY,
+    workspace_id UUID REFERENCES workspaces(id) ON DELETE CASCADE,
+    schemes      TEXT[] NOT NULL DEFAULT ARRAY['https','http'],
+    allow_cidrs  TEXT[] NOT NULL DEFAULT '{}',
+    deny_cidrs   TEXT[] NOT NULL,
+    allow_hosts  TEXT[] NOT NULL DEFAULT '{}',
+    deny_hosts   TEXT[] NOT NULL DEFAULT '{}',
+    deny_ports   INT[]  NOT NULL DEFAULT '{}',
+    allow_literal_ip BOOLEAN NOT NULL DEFAULT true,
+    follow_redirects BOOLEAN NOT NULL DEFAULT false,
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```
+
+> **v1 的 `models` 与 `provider_models` 两张表已删除。** 模型目录不再存在
+> （`02-routing-model.md` §3），供应商上新模型不需要写库。
+> `provider_endpoints` 也删了：一个 Profile 一个 `base_url`，多地域 = 多个 Profile。
 
 ### 5.2 审计类表（高频写，分区）
 
@@ -207,11 +227,17 @@ CREATE TABLE requests (
     conversation_id UUID,
     conversation_link TEXT,                  -- explicit | inferred | none
 
-    protocol        TEXT NOT NULL,
-    logical_model   TEXT NOT NULL,
-    provider_id     UUID,
-    provider_model  TEXT,
-    endpoint_id     UUID,
+    -- 上游是怎么定下来的
+    origin          TEXT NOT NULL,           -- managed | raw
+    profile_id      UUID,                    -- origin=managed 时非空
+    profile_name    TEXT,                    -- 冗余一份，profile 删了也能查历史
+    target_host     TEXT NOT NULL,           -- raw 模式排查的主要维度
+    target_path     TEXT NOT NULL,
+    -- Observer 选出来的种类；解析失败时是 generic_sse / generic_json
+    observer        TEXT NOT NULL,
+    -- 从 body 里**观测到**的模型名。仅用于统计，不参与路由（02 §4.2）
+    observed_model  TEXT,
+    credential_mode TEXT NOT NULL,           -- injected | passthrough | none
 
     stream          BOOLEAN NOT NULL,
     status_code     SMALLINT,
@@ -250,7 +276,7 @@ CREATE TABLE requests (
     security_action TEXT,                    -- allow | flag | warn | block | require_review
     security_hits   SMALLINT NOT NULL DEFAULT 0,
     -- fail-open 降级标记：非 NULL 表示这次「放行」是因为检查失败而非检查通过。
-    -- ADR-006 原则 3 要求 fail-open 必须可审计，否则无法统计安全能力的实际覆盖率。
+    -- ADR-012 原则 3 要求 fail-open 必须可审计，否则无法统计安全能力的实际覆盖率。
     security_degraded TEXT,                  -- timeout | extract_failed | rule_panic | detector_unavailable
 
     -- 布尔快捷字段（用于部分索引，避免查 JSONB）
@@ -401,7 +427,9 @@ CREATE INDEX ON requests (workspace_id, started_at DESC) WHERE security_degraded
 CREATE INDEX ON requests (workspace_id, started_at DESC) WHERE has_tool_calls;
 CREATE INDEX ON requests (workspace_id, started_at DESC) WHERE integrity <> 'complete';
 -- 成本分析
-CREATE INDEX ON requests (workspace_id, logical_model, started_at DESC);
+CREATE INDEX ON requests (workspace_id, profile_name, started_at DESC);
+-- raw 模式排查靠 host；observed_model 只做统计，不建索引（基数高、查询少）
+CREATE INDEX ON requests (workspace_id, target_host, started_at DESC) WHERE origin = 'raw';
 
 CREATE INDEX ON tool_calls (workspace_id, tool_name, started_at DESC);
 CREATE INDEX ON tool_calls (request_id);
@@ -699,7 +727,12 @@ pub struct Pricing {
 
 **用 `micro_usd`（整数）而非浮点**：浮点累加会产生误差，且 `SUM(float)` 的结果依赖行顺序。整数微美元的精度（1e-6 USD）远超需要。
 
-价格随时间变化：`pricing` 存在 `provider_models.pricing` 里，`effective_from` 支持历史价格。重算历史成本时用当时的价格。
+价格随时间变化。**但模型目录已删除**，价格无处可挂——第一阶段的处理是：
+`requests.cost_micro_usd` 只在**上游自己返回了计费信息**时填，否则留 NULL。
+
+Argus 不再自己算钱。理由与不维护模型目录一致：价格表和模型表一样会过期，
+而算错的账比不算账更糟。需要成本核算时，用 `observed_model` + `usage` 列
+在**下游**（BI / 财务系统）用它们自己的价格表算。（OQ-St5）
 
 `usage_source = 'estimated'` 的行，其 `cost_micro_usd` 也是估算的。查询时应该能区分：
 
@@ -740,7 +773,7 @@ store_raw_events  = false     # 默认 selective 已经很省，可完全关闭
 minimal = false
 ```
 
-`13-deployment.md` 会给出不同部署规模的推荐配置。
+`18-deployment.md` 会给出不同部署规模的推荐配置。
 
 ---
 
