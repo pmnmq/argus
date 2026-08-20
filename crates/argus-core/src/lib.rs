@@ -3,7 +3,7 @@
 //! 依赖图的根。**不得**依赖任何 `argus-*` crate（宪法 C6：反向依赖即循环），
 //! 也不得依赖 tokio / hyper / sqlx —— 这里只有数据形状，没有行为。
 //!
-//! 模块划分见 `docs/14-rust-project-structure.md` §5.3。
+//! 模块划分见 `docs/19-rust-project-structure.md` §5.3。
 
 #![forbid(unsafe_code)]
 

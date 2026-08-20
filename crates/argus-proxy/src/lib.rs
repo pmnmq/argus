@@ -3,8 +3,8 @@
 //! 关键性质（编译期可证）：本 crate 的依赖树中**没有** `sqlx`、也**没有** `argus-storage`。
 //! 持久化通过 `argus_protocol::sink::InteractionSink` 注入，由 `argus-server` 在组装期绑定。
 //!
-//! 设计依据：`docs/02-data-plane.md`、`docs/05-streaming.md`、`docs/07-provider-routing.md`、
-//! `docs/08-security.md`、`docs/09-auth.md`。
+//! 设计依据：`docs/06-data-plane.md`、`docs/10-streaming.md`、`docs/08-provider-profiles.md`、
+//! `docs/12-security.md`、`docs/14-auth-and-credentials.md`。
 
 #![forbid(unsafe_code)]
 

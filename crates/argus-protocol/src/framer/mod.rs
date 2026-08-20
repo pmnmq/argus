@@ -1,6 +1,6 @@
 //! 分帧层：字节 → 逻辑帧。**不理解帧里装的是什么**。
 //!
-//! 分帧与解析必须分开，这是 `docs/04-protocols.md` §9.2 称为「本文最重要的
+//! 分帧与解析必须分开，这是 `docs/09-observers.md` §9.2 称为「本文最重要的
 //! 前瞻性约束」的那一条：Bedrock 的 `invoke-with-response-stream` 返回的是
 //! AWS 私有的二进制帧格式，不是 SSE，但**解出来的 payload 是标准的
 //! Anthropic 事件 JSON**。也就是说换 provider 只该换 `Framer`，
@@ -33,7 +33,7 @@ pub trait Framer {
     /// 上游 EOF。
     ///
     /// 必须处理「最后一帧没有尾随空行」的情况 —— 真实 provider 会这样
-    /// （`docs/04` 坑 C8：OpenAI 异常结束时不发 `[DONE]` 也不发尾随空行）。
+    /// （`docs/09` 坑 C8：OpenAI 异常结束时不发 `[DONE]` 也不发尾随空行）。
     ///
     /// # Errors
     /// 同 [`Framer::push`]。

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""测试命名约定检查（`docs/15-testing-strategy.md` §4.1）。
+"""测试命名约定检查（`docs/20-testing-strategy.md` §4.1）。
 
 统一格式：
 
@@ -75,16 +75,16 @@ def main(argv: list[str]) -> int:
     findings = [(f, *h) for f in files for h in scan(f)]
     total = sum(1 for f in files for _ in [0])
     if not findings:
-        print(f"  ok   已扫描 {total} 个 .rs 文件，测试命名符合 docs/15 §4.1")
+        print(f"  ok   已扫描 {total} 个 .rs 文件，测试命名符合 docs/20 §4.1")
         return 0
 
     print("")
-    print(f"FAIL [docs/15 §4.1] 测试命名不符合约定（{len(findings)} 处）")
+    print(f"FAIL [docs/20 §4.1] 测试命名不符合约定（{len(findings)} 处）")
     for path, line, name, why in findings:
         print(f"      {path}:{line}  `{name}` —— {why}")
     print("      → 格式：[被测方法名]_[前置条件/测试场景]_[期望结果]")
     print("      → 例：is_retryable_stage_is_s3_committed_returns_false")
-    print("      → 约定原文：docs/15-testing-strategy.md §4.1")
+    print("      → 约定原文：docs/20-testing-strategy.md §4.1")
     return 1
 
 

@@ -88,7 +88,7 @@ pub struct RetryPolicy {
     ///
     /// 默认 `true`，但这是个**有代价的**默认：provider 可能已经开始生成并计费。
     /// 每次这样的重试都必须在审计里记 `retry_after_send = true`，
-    /// 让重复计费事后可核查。见 `docs/07` §7.3。
+    /// 让重复计费事后可核查。见 `docs/08` §7.3。
     pub on_no_response: bool,
     pub backoff: Backoff,
 }

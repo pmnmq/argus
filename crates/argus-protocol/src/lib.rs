@@ -3,7 +3,7 @@
 //! 本 crate 是**纯计算**的：给定字节，产出事件。它不做 IO、不 spawn 任务、不 panic。
 //! 这些性质由下面的属性 + `ci/check-invariants.sh` 的依赖树断言共同保证。
 //!
-//! 设计依据：`docs/04-protocols.md`、`docs/05-streaming.md`、`docs/06-observation-model.md`。
+//! 设计依据：`docs/09-observers.md`、`docs/10-streaming.md`、`docs/11-observation-model.md`。
 
 #![forbid(unsafe_code)]
 #![deny(

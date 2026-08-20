@@ -1,6 +1,6 @@
 //! Provider 凭据在内存中的形态。
 //!
-//! 设计依据：`docs/03-control-plane.md` §7.3、宪法 C27。
+//! 设计依据：`docs/07-control-plane.md` §7.3、宪法 C27。
 
 use core::fmt;
 
@@ -58,7 +58,7 @@ pub enum InvalidCredential {
 ///
 /// # 为什么存 `Zeroizing<Vec<u8>>` 而不是 `HeaderValue`
 ///
-/// `docs/03` §7.3 建议直接存预构造好的 `HeaderValue`，理由是每请求 `clone()`
+/// `docs/07` §7.3 建议直接存预构造好的 `HeaderValue`，理由是每请求 `clone()`
 /// 只是引用计数、不分配。但 `HeaderValue` 内部是 `Bytes`，**没有可变访问**，
 /// 意味着 Drop 时无法清零 —— 轮换掉的 key 会一直躺在堆上直到分配器复用。
 ///

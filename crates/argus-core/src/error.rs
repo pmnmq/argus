@@ -132,7 +132,7 @@ pub enum ProxyError {
     /// 熔断器打开，这个候选被跳过。不产生网络请求，因此可以立刻换下一个。
     #[error("circuit open for provider {0}")]
     CircuitOpen(CompactString),
-    /// 全局重试预算耗尽。这是防重试风暴的闸门，见 `docs/07` §7.2。
+    /// 全局重试预算耗尽。这是防重试风暴的闸门，见 `docs/08` §7.2。
     #[error("retry budget exhausted")]
     RetryBudgetExhausted,
 
@@ -156,7 +156,7 @@ pub enum ProxyError {
         reason: CancelReason,
         stage: UpstreamStage,
     },
-    /// 过载时快速失败，绝不排队。见 `docs/12` §5。
+    /// 过载时快速失败，绝不排队。见 `docs/17` §5。
     #[error("overloaded: {0}")]
     Overloaded(&'static str),
     #[error("server is shutting down")]
@@ -297,7 +297,7 @@ impl ProxyError {
             }
 
             // S2：看 status。401/403 刻意不重试 —— 静默换 provider 会掩盖
-            // 凭据过期，直到备用也坏掉才爆发。见 docs/07 §7.1。
+            // 凭据过期，直到备用也坏掉才爆发。见 docs/08 §7.1。
             Self::UpstreamStatus { status } => {
                 matches!(status, 408 | 429 | 500 | 502 | 503 | 504)
             }
@@ -432,7 +432,7 @@ mod tests {
         }
     }
 
-    /// `docs/07` §7.1：这些状态码 fallback 到下一个候选。
+    /// `docs/08` §7.1：这些状态码 fallback 到下一个候选。
     #[test]
     fn is_retryable_upstream_status_is_transient_returns_true() {
         for status in [408_u16, 429, 500, 502, 503, 504] {

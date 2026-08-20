@@ -1,6 +1,6 @@
 //! SSE 分帧器。
 //!
-//! 设计依据：`docs/05-streaming.md` §5.2–5.4、§6.4、§8.2。
+//! 设计依据：`docs/10-streaming.md` §5.2–5.4、§6.4、§8.2。
 //!
 //! 三条不变式，测试逐条钉住：
 //!
@@ -261,7 +261,7 @@ impl Framer for SseFramer {
         self.drain_buffer(out);
         if !self.buf.is_empty() {
             // 上游 EOF 但最后一帧没有尾随空行。真实 provider 会这样
-            // （docs/04 坑 C8），当成完整帧处理。
+            // （docs/09 坑 C8），当成完整帧处理。
             let frame = self.buf.split_to(self.buf.len()).freeze();
             self.emit_frame(&frame, out);
         }
@@ -277,7 +277,7 @@ impl Framer for SseFramer {
 ///
 /// # 这个函数是 F03 的全部难点
 ///
-/// SSE 规范允许 `\n\n`、`\r\n\r\n`、`\r\r` 三种。`docs/05` §5.3 给的示意实现
+/// SSE 规范允许 `\n\n`、`\r\n\r\n`、`\r\r` 三种。`docs/10` §5.3 给的示意实现
 /// 是三次独立的 `memmem::find` 再 `or_else`，那会返回**最早出现的 `\n\n`**，
 /// 而不是**最早出现的任意分隔符**。对 `a\r\rb\n\n` 它会切出整个 7 字节，
 /// 而正确答案是前 3 字节。文档里已经标注了这个 bug。
@@ -450,7 +450,7 @@ mod tests {
         assert_eq!(find_frame_end(b"data: a\r\r"), Some(9));
     }
 
-    /// **这是 `docs/05` §5.3 标记的 bug 点。**
+    /// **这是 `docs/10` §5.3 标记的 bug 点。**
     ///
     /// 三次独立 `memmem::find` 再 `or_else` 会先找到 `\n\n`（位置 4），
     /// 返回 7；但最早的分隔符是位置 1 的 `\r\r`，正确答案是 3。

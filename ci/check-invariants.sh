@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 架构不变式检查（F01 T7 / docs/15-testing-strategy.md §9）
+# 架构不变式检查（F01 T7 / docs/20-testing-strategy.md §9）
 #
 # 每条检查都对应 specs/constitution.md 中的一条，失败时必须打印条款号，
 # 这样看到红色 CI 的人不用猜"为什么不让我这么写"。
@@ -52,13 +52,13 @@ has_dep() {  # has_dep <deps文件> <包名前缀>
 
 # ---------------------------------------------------------------------------
 echo "=== [C32] crate 集合 ==="
-# 拆 crate 需要理由。新增 crate 必须先在 docs/14 §4 给出判据，再改这一行。
+# 拆 crate 需要理由。新增 crate 必须先在 docs/19 §4 给出判据，再改这一行。
 EXPECTED="argus-core argus-protocol argus-proxy argus-server argus-storage"
 ACTUAL="$(ls -1 crates | sort | tr '\n' ' ' | sed 's/ $//')"
 [ "$ACTUAL" = "$EXPECTED" ] || fail C32 \
   "crates/ 目录与已登记的 crate 集合不一致" \
-  "期望：${EXPECTED} / 实际：${ACTUAL}。新增 crate 需满足 docs/14 §4 四条判据之一，并同步更新本脚本。"
-ok "5 个 crate，与 docs/14 §5 一致"
+  "期望：${EXPECTED} / 实际：${ACTUAL}。新增 crate 需满足 docs/19 §4 四条判据之一，并同步更新本脚本。"
+ok "5 个 crate，与 docs/19 §5 一致"
 
 # ---------------------------------------------------------------------------
 echo "=== [C6] 依赖方向 ==="
@@ -85,7 +85,7 @@ ok "argus-protocol 无 tokio/hyper/sqlx/axum/reqwest/tower"
 for banned in sqlx argus-storage; do
   has_dep "$TMP/argus-proxy.deps" "$banned" && fail C6 \
     "argus-proxy 依赖了 $banned" \
-    "持久化必须通过 argus_protocol::sink::InteractionSink 注入，由 argus-server 在组装期绑定（docs/10 §4.1）。"
+    "持久化必须通过 argus_protocol::sink::InteractionSink 注入，由 argus-server 在组装期绑定（docs/15 §4.1）。"
 done
 ok "argus-proxy 无 sqlx / argus-storage"
 
@@ -135,7 +135,7 @@ find crates -name '*.rs' -print0 \
   > "$TMP/unbounded" 2>/dev/null || true
 if [ -s "$TMP/unbounded" ]; then
   fail C9 "发现无界 channel：$(head -3 "$TMP/unbounded" | tr '\n' ' ')" \
-    "所有队列必须有显式上限。满了要降级（丢观测、置 gap_before），不是无限增长直到 OOM。见 docs/02 §5。"
+    "所有队列必须有显式上限。满了要降级（丢观测、置 gap_before），不是无限增长直到 OOM。见 docs/06 §5。"
 fi
 ok "无 unbounded_channel / unbounded()"
 
@@ -164,7 +164,7 @@ for f in crates/argus-proxy/src/tee.rs crates/argus-proxy/src/gate.rs; do
   GUARDED=1
   if sed 's://.*::' "$f" | grep -nE '\.(send|send_timeout|reserve)[[:space:]]*\(' > "$TMP/c5" 2>/dev/null; then
     fail C5 "$f 中出现了会 await 的 send：$(head -2 "$TMP/c5" | tr '\n' ' ')" \
-      "主链路只能 try_send。旁路慢/满时丢观测并累计 gap_before，绝不反压主链路。见 docs/02 §5.1。"
+      "主链路只能 try_send。旁路慢/满时丢观测并累计 gap_before，绝不反压主链路。见 docs/06 §5.1。"
   fi
 done
 if [ "$GUARDED" = 1 ]; then ok "tee/gate 中无阻塞 send"; else echo "  skip tee.rs/gate.rs 尚未存在（F04/F25 落地后自动生效）"; fi
@@ -174,9 +174,9 @@ echo "=== [C27] 日志敏感字段 ==="
 python3 ci/check_log_fields.py crates || exit 1
 
 # ---------------------------------------------------------------------------
-# 这一条不是宪法条款，是 docs/15 §4.1 的约定。放在这里是因为它和上面几条
+# 这一条不是宪法条款，是 docs/20 §4.1 的约定。放在这里是因为它和上面几条
 # 一样：能机械检查的东西就不该靠 review 记着。
-echo "=== [docs/15 §4.1] 测试命名 ==="
+echo "=== [docs/20 §4.1] 测试命名 ==="
 python3 ci/check_test_names.py crates || exit 1
 
 echo ""

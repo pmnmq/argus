@@ -114,7 +114,7 @@ fn count(input: &[u8], split: &SplitStrategy) -> Result<usize, FramerError> {
     Ok(out.frames)
 }
 
-/// `docs/16` §6.1 点名的那条：10 万随机字节不 panic。
+/// `docs/22` §6.1 点名的那条：10 万随机字节不 panic。
 ///
 /// 用固定种子而不是随机的 —— 失败时能原样复现。
 #[test]

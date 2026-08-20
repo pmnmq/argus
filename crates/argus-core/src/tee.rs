@@ -4,7 +4,7 @@
 //! 然后立刻继续转发。旁路满了就丢，丢掉的字节数记在下一个 chunk 的
 //! `gap_before` 上 —— 有损是允许的，**悄无声息的有损不允许**（宪法 C13）。
 //!
-//! 设计依据：`docs/02-data-plane.md` §5。
+//! 设计依据：`docs/06-data-plane.md` §5。
 
 use core::fmt;
 

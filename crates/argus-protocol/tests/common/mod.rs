@@ -1,6 +1,6 @@
 //! 测试用的切分策略。F03 产出，F10 的 golden test 复用。
 //!
-//! 设计依据：`docs/15-testing-strategy.md` §5.4。
+//! 设计依据：`docs/20-testing-strategy.md` §5.4。
 //!
 //! **为什么这是整个测试体系里最有价值的一个技巧**：真实 TCP 分片是任意的。
 //! 一个只在「完整帧」下测过的解析器，在生产里遇到
@@ -30,7 +30,7 @@ pub enum SplitStrategy {
 }
 
 impl SplitStrategy {
-    /// 全矩阵。数量必须 ≥ 30（`docs/16` §6.1 的验收要求）。
+    /// 全矩阵。数量必须 ≥ 30（`docs/22` §6.1 的验收要求）。
     #[must_use]
     pub fn all() -> Vec<Self> {
         let mut v = vec![

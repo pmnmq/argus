@@ -4,7 +4,7 @@
 //! `WorkspaceId` 和 `ApiKeyId` 类型相同，参数写反了编译器不会吭声，
 //! 而这种 bug 的表现形式是「A 工作区的配额被算到 B 头上」。
 //!
-//! 设计依据：`docs/02-data-plane.md` §10。
+//! 设计依据：`docs/06-data-plane.md` §10。
 
 use core::fmt;
 
@@ -65,7 +65,7 @@ id_newtype!(
     WorkspaceId
 );
 id_newtype!(
-    /// 客户端 API Key 的标识部分（明文可索引，见 `docs/09` §5）。
+    /// 客户端 API Key 的标识部分（明文可索引，见 `docs/14` §5）。
     ApiKeyId
 );
 id_newtype!(
@@ -89,7 +89,7 @@ id_newtype!(
 ///
 /// 这个区分不是记账用的：安全策略**只信任 `Explicit`**。推断出来的会话关联
 /// 可以被构造（比如刻意复用某个 `previous_response_id`），如果拿它做跨轮次的
-/// 风险累积判定，就等于把判定权交给了调用方。见 `docs/06` §9。
+/// 风险累积判定，就等于把判定权交给了调用方。见 `docs/11` §9。
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ConversationLink {
