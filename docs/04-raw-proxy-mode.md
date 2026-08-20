@@ -86,6 +86,31 @@ Argus 接受**两种**形式，都映射到同一个 target：
 
 > 默认补 scheme 会让「用户以为在用 TLS，实际是明文」成为可能。
 
+scheme 按 ASCII **大小写不敏感**匹配（RFC 3986 §3.1），产出的 target 一律用
+小写。这不是猜测性补全 —— `HTTPS://` 本来就是同一个 scheme，`http::Uri` 自己
+也这么认；在这里多设一道大小写门槛只会制造「直连能用、走 Argus 不能用」的差异。
+
+### 4.4 authority 与空 path
+
+切出 scheme 之后，剩下的串在**第一个 `/`** 处分成 authority 与 path。IPv6
+字面量的 `:` 都在方括号里，不含 `/`，所以这条规则对 `[2001:db8::1]:8000`
+同样成立。
+
+| 情况 | 处理 |
+|---|---|
+| authority 为空（`/raw/https:///v1`） | 400 `invalid_raw_target` |
+| authority 含 userinfo（`/raw/https://u:p@host/v1`） | 400 `invalid_raw_target`（OQ-W4） |
+| 没有 `/`（`/raw/https://api.openai.com`） | **放行**，转发到根路径 |
+
+拒绝 userinfo 是安全决定，不是洁癖：`https://api.openai.com@evil.com/v1` 读起来
+像是打 OpenAI，实际 authority 是 `evil.com`。这个歧义在人眼和 allowlist 之间
+制造分歧，而 Raw 模式的 allowlist 正是 SSRF 防线的一部分（`13` §9）。
+
+最后一行与 Managed 模式**刻意不同**：Managed 的 `/provider/openai` 报
+400 `empty_upstream_path`（`03` §5.2），因为那说明客户端的 `base_url` 配错了；
+Raw 模式没有 base_url 可配错，`/raw/https://api.openai.com` 就是「打这个 host
+的根路径」，等价于 `curl https://api.openai.com`，没有理由拒绝。
+
 ---
 
 ## 5. 解析必须按原始字节做（**实测结论**）
@@ -133,18 +158,23 @@ uri().path() "/provider/openai/v1/models/gpt%2F4"   ← 原样
 ### 5.3 切分算法
 
 ```text
-raw_path = uri.path()                    // 原始，未解码
-若以 "/provider/" 开头：
-    name_end = raw_path[11..] 中第一个 '/' 的位置
-    profile_name = decode(raw_path[11..name_end])   // 只有这里 decode
-    rest        = raw_path[name_end..]              // 原样，含前导 '/'
-若以 "/raw/" 开头：
-    rest = raw_path[5..]                            // 原样
+raw_path = uri.path()                   // 原始，未解码
+若以 "/provider/" 开头：                 // 前缀长 10
+    tail = raw_path[10..]               // 例：openai/v1/messages
+    i    = tail 中第一个 '/' 的字节位置  // 没有 '/' → 400 empty_upstream_path
+    profile_name = tail[..i]            // 原始字节
+    rest         = tail[i..]            // 原样，含前导 '/'
+若以 "/raw/" 开头：                      // 前缀长 5
+    rest = raw_path[5..]                // 原样
 ```
 
-`profile_name` 是唯一需要 decode 的地方，因为它要拿去查表；且它的字符集被限制成
-`[a-z0-9-]`，decode 之后必须仍然合法，否则 400 —— 这拒绝掉 `%6Fpenai` 这种
-绕过命名校验的写法。
+**全程一次 decode 都不做**，`profile_name` 也不例外。它的字符集被限制成
+`[a-z0-9-]`（OQ-R1），而 `%` 不在这个集合里 —— 所以直接拿原始字节做一次
+字符集校验，就已经拒绝掉了 `%6Fpenai` 这种绕过命名校验的写法。
+
+顺序不能反过来：**先 decode 再校验是错的**，`%6Fpenai` 解出来正是 `openai`，
+校验会顺利通过 —— 那正是要拦的东西。真正起作用的是原始字节校验；在合法
+输入上 decode 只是个恒等变换，还白白多一次分配（宪法 C21）。
 
 ---
 
@@ -331,6 +361,7 @@ Raw Mode      = Escape hatch / 高级模式，用 curl、脚本、自研客户�
 5. **默认不跟随 redirect**；开启时每跳完整重校验，跨 origin 剥凭据，最多 3 跳。
 6. Raw 模式默认 passthrough 凭据；与 injected 凭据组合时必须配 target allowlist。
 7. 拒绝类错误统一为 403 `target_denied`，不回显 IP、不区分拒绝原因。
+8. authority 含 userinfo 一律 400 `invalid_raw_target`（§4.4，原 OQ-W4）。
 
 ---
 
@@ -341,4 +372,3 @@ Raw Mode      = Escape hatch / 高级模式，用 curl、脚本、自研客户�
 | OQ-W1 | 是否提供第三种 query 形式 `/raw?target=…`？ | 有用户被前置组件卡住且分段形式也不够时 |
 | OQ-W2 | 是否提供 `X-Argus-Target` header 形式？ | 同上 |
 | OQ-W3 | 拒绝路径的时间侧信道要不要处理？ | 第一阶段不做，M3 复评 |
-| OQ-W4 | 分段形式里 authority 含 userinfo（`user:pass@host`）如何编码？ | 倾向直接拒绝 userinfo |
