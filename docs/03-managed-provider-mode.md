@@ -66,6 +66,19 @@ Argus 做任何特殊处理**，客户端怎么写就怎么转。这正是 `prov
 
 ## 5. 拼接规则（Q6）
 
+**前提**：`base_url` 只能是 `scheme://authority[/path-prefix]`，**不得**带
+query、fragment 或 userinfo。这三样都会在拼接时静默地毁掉结果：
+
+| 写成 | 拼出来 | 后果 |
+|---|---|---|
+| `https://x.com/#frag` | `https://x.com/` | 客户端的 path 与 query **整个消失** |
+| `https://x.com/?k=v` | `https://x.com/?k=v/v1/messages` | path 被挤进查询串 |
+| `https://u:p@x.com` | `https://u:p@x.com/v1/messages` | 配置里的密码进了 target 与审计（C27） |
+
+这条约束在**配置写入时**强制（`specs/F22` §6 R28），Data Plane **不重复校验**。
+每请求再验一遍是纯浪费；更重要的是，这类错误报在写配置的人面前才有用，
+报在调用方面前只会变成一次莫名其妙的 404。
+
 只有一条规则：
 
 ```text
@@ -252,7 +265,8 @@ authorization / x-api-key / api-key / x-goog-api-key
 | 剩余 path 为空 | 400 `empty_upstream_path` | §5.2 |
 | `providerName` 含非法字符 | 400 `invalid_provider_name` | 含 decode 后才合法的写法 |
 | Profile 的 credential 解密失败 | 503 `credential_unavailable` | **不 fail-open**，见 `14` §6.4 |
-| base_url 解析失败（配置错误） | 503 `provider_misconfigured` + 告警 | 应在配置写入时就拦下 |
+| base_url 拼不出绝对 URL（配置错误） | 503 `provider_misconfigured` + 告警 | 兜底而已，应在配置写入时就拦下 |
+| base_url 带 query / fragment / userinfo | —— | Data Plane 不查，见 §5 前提 |
 
 错误体按调用方协议的形状渲染，见 `06-data-plane.md` §9。
 

@@ -135,3 +135,4 @@ just test -p argus-proxy resolver
 | Observer 选择 | R04 |
 | nginx/Traefik 后的实测 | F21（混沌与集成） |
 | `ProfileRegistry` 的真实实现（现在只有测试夹具） | F11（`ConfigSnapshot`） |
+| `base_url` 的形状校验（query / fragment / userinfo） | F22 §6 R28（配置写入时） |

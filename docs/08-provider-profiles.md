@@ -51,6 +51,8 @@ pub struct ProviderProfile {
     pub display_name: CompactString,
     /// 仅用于 UI 模板与默认值。**Data Plane 不得据此分支**
     pub provider_type: ProviderType,
+    /// 只能是 `scheme://authority[/path-prefix]`。不得带 query / fragment /
+    /// userinfo —— 理由与强制位置见 `03-managed-provider-mode.md` §5
     pub base_url: Uri,
     pub enabled: bool,
 

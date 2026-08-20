@@ -57,6 +57,10 @@
 - **R25** THE SYSTEM SHALL 提供 `argus config apply/export`；`credential_ref: env:XXX` 让配置可进 Git。
 - **R26** `config export` SHALL NOT 输出 credential 明文。
 - **R27** THE SYSTEM SHALL 提供 `/admin/diagnostics`（`docs/07` §5.4 的字段）。
+- **R28** `base_url` SHALL 形如 `scheme://authority[/path-prefix]`：scheme 在
+  白名单内，authority 非空，且**不得**含 query、fragment 或 userinfo。这三样
+  会在拼接时静默毁掉结果（`docs/03` §5 的表），而 Data Plane 刻意不重复校验
+  —— 拦不下来就只能在生产里以「上游 404」的形式暴露。
 
 ## 7. 接口契约
 
