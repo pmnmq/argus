@@ -93,3 +93,98 @@ pub fn parts(target: &str) -> Parts {
         .into_parts()
         .0
 }
+
+// ─────────────────────────────────────────────────────────────────────────
+// R03 · Target Policy 的夹具
+// ─────────────────────────────────────────────────────────────────────────
+
+use core::{future::Future, net::SocketAddr, pin::Pin};
+use std::{
+    io,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
+use argus_proxy::target::{Addrs, DnsResolver};
+
+/// 可编排的 DNS 解析器。
+///
+/// 存在的唯一理由是构造 **rebinding** 场景：第一次解析返回一个公网地址、
+/// 通过判定，第二次返回 `127.0.0.1`。真实解析器做不到按次数换答案，
+/// 而这正是 `docs/13` §6 要防的那个攻击的形状。
+pub struct MockResolver {
+    /// 第 n 次调用返回第 n 个答案；用完之后一直返回最后一个
+    answers: Vec<Answer>,
+    calls: AtomicUsize,
+}
+
+enum Answer {
+    Addrs(Addrs),
+    Failure(io::ErrorKind),
+}
+
+impl MockResolver {
+    /// 每次都返回同一组地址。
+    #[must_use]
+    pub fn always(addrs: &[&str]) -> Self {
+        Self::scripted(&[addrs])
+    }
+
+    /// 按调用次序返回不同答案 —— rebinding 场景用这个。
+    #[must_use]
+    pub fn scripted(script: &[&[&str]]) -> Self {
+        Self {
+            answers: script.iter().map(|set| Answer::Addrs(addrs(set))).collect(),
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    /// 解析失败（对应 502 `target_dns_failure`）。
+    #[must_use]
+    pub fn failing(kind: io::ErrorKind) -> Self {
+        Self {
+            answers: vec![Answer::Failure(kind)],
+            calls: AtomicUsize::new(0),
+        }
+    }
+
+    /// 解析成功但返回空集合 —— 同样按解析失败处理。
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::scripted(&[&[]])
+    }
+
+    #[must_use]
+    pub fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+impl DnsResolver for MockResolver {
+    fn resolve<'a>(
+        &'a self,
+        _host: &'a str,
+        _port: u16,
+    ) -> Pin<Box<dyn Future<Output = io::Result<Addrs>> + Send + 'a>> {
+        let n = self.calls.fetch_add(1, Ordering::SeqCst);
+        let idx = n.min(self.answers.len().saturating_sub(1));
+        let answer = match self.answers.get(idx) {
+            Some(Answer::Addrs(a)) => Ok(a.clone()),
+            Some(Answer::Failure(kind)) => Err(io::Error::new(*kind, "mock dns failure")),
+            None => Ok(Addrs::new()),
+        };
+        Box::pin(async move { answer })
+    }
+}
+
+/// `["1.2.3.4:443"]` → `Addrs`。
+///
+/// # Panics
+///
+/// 地址写错时 panic。测试里传的都是常量。
+#[must_use]
+pub fn addrs(items: &[&str]) -> Addrs {
+    items
+        .iter()
+        .map(|s| s.parse::<SocketAddr>().expect("固定的合法 SocketAddr"))
+        .collect()
+}
