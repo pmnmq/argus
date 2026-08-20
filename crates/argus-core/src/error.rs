@@ -118,6 +118,13 @@ pub enum ProxyError {
     InvalidRawTarget,
     #[error("scheme not allowed")]
     SchemeNotAllowed,
+    /// URL 里的 profile 名不合字符集 `^[a-z0-9][a-z0-9-]{0,62}$`。
+    ///
+    /// 与 [`Self::ProviderNotFound`] 刻意分开：名字**合不合法**是纯语法问题，
+    /// 泄漏不了租户里配了什么；而「存不存在」必须与「无权访问」不可区分
+    /// （`docs/14-auth-and-credentials.md` §7.2）。
+    #[error("invalid provider profile name")]
+    InvalidProviderName,
     #[error("upstream path is empty")]
     EmptyUpstreamPath,
     /// 被 Target Policy 拒绝。**不携带任何 IP 或拒绝原因** ——
@@ -205,6 +212,7 @@ impl ProxyError {
             Self::InvalidRequest(_)
             | Self::InvalidRawTarget
             | Self::SchemeNotAllowed
+            | Self::InvalidProviderName
             | Self::EmptyUpstreamPath => StatusCode::BAD_REQUEST,
             Self::PayloadTooLarge { .. } => StatusCode::PAYLOAD_TOO_LARGE,
             Self::QuotaExceeded { .. } => StatusCode::TOO_MANY_REQUESTS,
@@ -251,6 +259,7 @@ impl ProxyError {
             Self::RawProxyNotAllowed => "raw_proxy_not_allowed",
             Self::InvalidRawTarget => "invalid_raw_target",
             Self::SchemeNotAllowed => "scheme_not_allowed",
+            Self::InvalidProviderName => "invalid_provider_name",
             Self::EmptyUpstreamPath => "empty_upstream_path",
             Self::TargetDenied => "target_denied",
             Self::TargetDnsFailure => "target_dns_failure",
@@ -292,6 +301,7 @@ impl ProxyError {
             | Self::RawProxyNotAllowed
             | Self::InvalidRawTarget
             | Self::SchemeNotAllowed
+            | Self::InvalidProviderName
             | Self::EmptyUpstreamPath
             | Self::TargetDenied
             | Self::TargetDnsFailure
@@ -400,6 +410,7 @@ mod tests {
             ProxyError::RawProxyNotAllowed,
             ProxyError::InvalidRawTarget,
             ProxyError::SchemeNotAllowed,
+            ProxyError::InvalidProviderName,
             ProxyError::EmptyUpstreamPath,
             ProxyError::TargetDenied,
             ProxyError::TargetDnsFailure,
@@ -437,13 +448,13 @@ mod tests {
     }
 
     #[test]
-    fn error_code_across_all_variants_returns_25_distinct_codes() {
+    fn error_code_across_all_variants_returns_34_distinct_codes() {
         let mut codes: Vec<&str> = samples().iter().map(ProxyError::error_code).collect();
         codes.sort_unstable();
         codes.dedup();
         assert_eq!(
             codes.len(),
-            33,
+            34,
             "样本没覆盖全部变体，或有两个变体共用了同一个 error_code"
         );
     }
@@ -568,6 +579,28 @@ mod tests {
         // 且不能泄漏"存在但无权"这层信息
         assert!(!not_found.to_string().contains("allow"));
         assert!(!not_found.to_string().contains("permission"));
+    }
+
+    /// 反过来，「名字**写错了**」与「名字**不存在**」必须可区分。
+    ///
+    /// 前者是纯语法问题，泄漏不了租户里配了什么；把它也压成 404 只会让
+    /// 一个打错字的客户端拿不到任何有用信息。`docs/03` §11 点名了这个码。
+    #[test]
+    fn invalid_provider_name_is_distinguishable_from_provider_not_found() {
+        let malformed = ProxyError::InvalidProviderName;
+        assert_eq!(malformed.error_code(), "invalid_provider_name");
+        assert_eq!(malformed.http_status(), 400);
+        assert_ne!(
+            malformed.error_code(),
+            ProxyError::ProviderNotFound.error_code()
+        );
+        // 但它同样不能透露"这个名字是否存在"
+        for leak in ["exist", "found", "unknown"] {
+            assert!(
+                !malformed.to_string().contains(leak),
+                "错误信息泄漏了 `{leak}`：{malformed}"
+            );
+        }
     }
 
     /// `target_denied` 不得携带任何 IP 或拒绝原因

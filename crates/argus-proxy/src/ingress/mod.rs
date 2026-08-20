@@ -114,15 +114,6 @@ pub fn resolve_target(
     }
 }
 
-/// profile 名不合字符集。
-///
-/// 与「Profile 不存在」刻意用**不同**的码：名字的合法性是纯语法问题，
-/// 泄漏不了租户里配了什么。而 404 那条必须与「无权访问」不可区分
-/// （`docs/14-auth-and-credentials.md` §7.2）。
-pub(crate) fn invalid_profile_name() -> ProxyError {
-    ProxyError::InvalidRequest("invalid provider profile name".into())
-}
-
 /// 拼好的 target 必须是绝对 URL。
 ///
 /// `Uri` 会愉快地把 `/v1/messages` 解析成合法的 origin-form，所以配置里一个

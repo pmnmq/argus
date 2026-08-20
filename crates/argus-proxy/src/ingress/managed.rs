@@ -13,7 +13,7 @@ use argus_core::{ObserveMode, ProxyError, ResolvedTarget, TargetOrigin};
 use http::Uri;
 
 use super::{
-    MANAGED_PREFIX, ProfileRegistry, TargetResolver, ensure_absolute, invalid_profile_name,
+    MANAGED_PREFIX, ProfileRegistry, TargetResolver, ensure_absolute,
     path::{is_valid_profile_name, split_first_segment, strip_one_leading_slash},
     push_query,
 };
@@ -28,7 +28,7 @@ impl TargetResolver for ManagedResolver {
     /// | 情况 | 错误 | status |
     /// |---|---|---|
     /// | path 不以 `/provider/` 开头 | `ProviderNotFound` | 404 |
-    /// | profile 名不合字符集（含 `%6Fpenai` 这类绕过写法） | `InvalidRequest` | 400 |
+    /// | profile 名不合字符集（含 `%6Fpenai` 这类绕过写法） | `InvalidProviderName` | 400 |
     /// | `/provider/{name}` 后面什么都没有 | `EmptyUpstreamPath` | 400 |
     /// | Profile 不存在 | `ProviderNotFound` | 404 |
     /// | Profile 被禁用 | `ProviderDisabled` | 503 |
@@ -51,12 +51,12 @@ impl TargetResolver for ManagedResolver {
             return Err(if is_valid_profile_name(tail) {
                 ProxyError::EmptyUpstreamPath
             } else {
-                invalid_profile_name()
+                ProxyError::InvalidProviderName
             });
         };
 
         if !is_valid_profile_name(name) {
-            return Err(invalid_profile_name());
+            return Err(ProxyError::InvalidProviderName);
         }
         let profile = profiles.lookup(name).ok_or(ProxyError::ProviderNotFound)?;
         if !profile.enabled {

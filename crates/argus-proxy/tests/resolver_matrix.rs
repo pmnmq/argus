@@ -178,7 +178,7 @@ mod managed_resolver {
 
     /// §5.1「Profile 名」：字符集边界，以及 `%6Fpenai` 这类绕过写法。
     #[test]
-    fn resolve_managed_url_with_an_illegal_profile_name_returns_invalid_request() {
+    fn resolve_managed_url_with_an_illegal_profile_name_returns_invalid_provider_name() {
         for target in [
             "/provider/OpenAI/v1",     // 大写不在字符集里
             "/provider/open_ai/v1",    // 下划线不在字符集里
@@ -189,7 +189,9 @@ mod managed_resolver {
             "/provider/openai%2Fx/v1", // 编码斜杠不能用来伪造段
         ] {
             let err = managed("https://x.com", target).unwrap_err();
-            assert_eq!(err.error_code(), "invalid_request", "target={target}");
+            assert_eq!(err, ProxyError::InvalidProviderName, "target={target}");
+            // `docs/03` §11 点名的那个码，客户端会据此分支
+            assert_eq!(err.error_code(), "invalid_provider_name", "target={target}");
             assert_eq!(err.http_status(), 400, "target={target}");
         }
     }
