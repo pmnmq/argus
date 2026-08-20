@@ -175,15 +175,15 @@ let tls = connector.connect(ServerName::from(host), stream).await?;
 
 ## 7. Redirect（Q13）
 
-见 `04-raw-proxy-mode.md` §8。这里补充一条实现约束：
+**Argus 不跟随 redirect**，见 `04-raw-proxy-mode.md` §8。3xx 连同 `Location`
+原样透传给客户端，因此本文档的判定链**只需要跑一次**，不存在"第二跳"。
 
-> 开启 `follow_redirects` 时，**每一跳都要完整重跑本文档 §4 的整条判定链**，
-> 包括 DNS 解析与连接时确认。不能因为"第一跳已经校验过"就跳过。
+这是一条实实在在的攻击面削减：跟随一旦启用，就得同时保证「每跳完整重跑
+§4 的整条判定链（含 DNS 重解析与连接时确认）」和「跨 origin 剥除全部凭据
+header」。后者尤其要命 —— 漏掉它，redirect 就成了一条把凭据送到任意地址的
+通道，比 SSRF 本身更严重。不做，就一条都不用守。
 
-以及：
-
-> **跨 origin 跳转必须剥除所有凭据 header。** 否则 redirect 就成了
-> 一个把凭据送到任意地址的通道——比 SSRF 本身更严重。
+若将来重新支持（`04` §16 OQ-W5），上面两条是硬前提。
 
 ---
 
@@ -276,7 +276,7 @@ let tls = connector.connect(ServerName::from(host), stream).await?;
 |---|---|---|
 | 判定 IP 而非主机名 | rebinding 不可绕过 | 每请求一次 DNS（用缓存摊薄） |
 | 多 IP 时整体拒绝 | 无碰运气空间 | 某些 CDN 的混合 A 记录会被误伤 |
-| 默认不跟随 redirect | 无绕过面 | 少数上游需要客户端配合 |
+| 不跟随 redirect | 无绕过面；判定链只跑一次 | 少数上游需要客户端配合 |
 | Managed 也走策略 | 一套逻辑、配置错误也能兜住 | 每请求多一次判定 |
 | 拒绝不区分原因 | 不成为内网探测器 | 用户排查配置时体感差（靠审计弥补） |
 
@@ -306,7 +306,7 @@ let tls = connector.connect(ServerName::from(host), stream).await?;
    管理员可用 `allow_cidrs` 精确放行（最长前缀匹配优先）。
 3. **只解析一次 DNS，连接时直接指定 IP**；TLS 的 SNI 与证书校验仍用 hostname。
 4. 多个 IP 中有任一不合规 → 整体拒绝。
-5. 默认不跟随 redirect；开启时每跳完整重校验、跨 origin 剥凭据。
+5. 不跟随 redirect，3xx 原样透传（`04` §8）。判定链因此只跑一次。
 6. 拒绝类错误统一 `target_denied`，不回显 IP、不按原因区分状态码。
 7. `allow_raw_proxy` + `injected` 凭据必须配 target allowlist，配置期强制。
 8. Managed 模式同样执行 Target Policy。

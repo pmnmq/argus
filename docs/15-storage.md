@@ -200,7 +200,6 @@ CREATE TABLE target_policies (
     deny_hosts   TEXT[] NOT NULL DEFAULT '{}',
     deny_ports   INT[]  NOT NULL DEFAULT '{}',
     allow_literal_ip BOOLEAN NOT NULL DEFAULT true,
-    follow_redirects BOOLEAN NOT NULL DEFAULT false,
     updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ```

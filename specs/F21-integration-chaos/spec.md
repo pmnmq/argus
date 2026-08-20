@@ -125,8 +125,7 @@ impl TestArgus { pub async fn inject(&self, c: Chaos); }
 | S32 | 目标解析到 `127.0.0.1` | 403 `target_denied`，body 无 IP |
 | S33 | 多值 A 记录含一个内网 IP | 整体拒绝 |
 | S34 | DNS rebinding（两次解析不同） | 连接时检出 + 计数 |
-| S35 | Redirect 到内网，`follow_redirects=false` | 3xx 原样透传 |
-| S36 | Redirect 到内网，`follow_redirects=true` | 第二跳被拒 |
+| S35 | 上游返回指向内网的 3xx | 原样透传，**不跟随**（`docs/04` §8） |
 | S37 | 跨 origin redirect | 凭据 header 被剥除 |
 
 S29–S31 需要 Docker，**不进默认 CI**，但发布前必须跑，结果回填到
