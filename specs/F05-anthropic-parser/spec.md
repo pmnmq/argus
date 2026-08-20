@@ -50,21 +50,31 @@ pub trait ProtocolObserver {
     fn on_frame(&mut self, frame: FrameRef<'_>, out: &mut dyn EventSink);
     /// 流结束：关闭仍打开的 block（若协议需要）
     fn finish(&mut self, out: &mut dyn EventSink);
-    fn protocol(&self) -> Protocol;
+    fn kind(&self) -> ObserverKind;
 }
 
 pub trait EventSink { fn emit(&mut self, ev: ObservedEvent); }
 
 /// 枚举分发，避免 Box<dyn> 与虚表（宪法 C21）
-pub enum AnyParser {
+pub enum AnyObserver {
     AnthropicMessages(AnthropicMessagesParser),
     OpenAiChat(OpenAiChatParser),          // F08 填充
     OpenAiResponses(OpenAiResponsesParser),// F08 填充
+    /// R04 已落地，本切片只需把它们接进枚举分发
+    GenericSse(GenericSseObserver),
+    GenericJson(GenericJsonObserver),
 }
-impl AnyParser {
-    pub fn for_protocol(p: Protocol, dialect: Arc<Dialect>) -> Self;
+impl AnyObserver {
+    pub fn for_kind(k: ObserverKind, dialect: Arc<Dialect>) -> Self;
 }
 ```
+
+> **R01 修正**：`Protocol` 这个类型在 v2 里已经删除 —— 协议形状不参与路由，
+> 只决定 Observer 的选择（ADR-010、宪法 C33）。上面两处原本写的是
+> `fn protocol(&self) -> Protocol` 与 `for_protocol(p: Protocol, ..)`，
+> 改用 `ObserverKind`。`AnyParser` 一并改名 `AnyObserver`：它分发的是
+> 观测器，不是"解析器"，而且必须容得下 R04 的两个 Generic 变体 ——
+> 「认不出协议」≠「不观测」。
 
 映射规则表见 `docs/11` §5.3，**逐行实现，不得增删**。
 
