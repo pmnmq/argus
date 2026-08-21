@@ -140,6 +140,6 @@ just test -p argus-protocol generic
 |---|---|
 | 三种协议的解析 | F05 / F08 |
 | 把两个 Generic 接进 `AnyObserver` 枚举分发 | F05（§4 已按 R04 更新） |
-| `is_complete()` → `Integrity::Degraded` 的接线 | F04 |
+| `is_complete()` → `Integrity::Degraded` 的接线 | F06。F04 已提供 `Integrity` 与 `Gap` → `Degraded` 的通路，缺的是让 Observer 真的跑起来并发出事件 |
 | 「主链路不受影响」的端到端验证 | F06 |
 | 规则 CRUD | F22 |

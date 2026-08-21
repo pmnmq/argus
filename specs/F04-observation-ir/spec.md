@@ -54,7 +54,7 @@ impl Accumulator {
     pub fn new(meta: RequestMeta, cfg: AccumulatorConfig) -> Self;
     /// 同步、不 panic、不返回 Err —— 异常一律记入 stats.anomalies
     pub fn apply(&mut self, ev: &ObservedEvent);
-    pub fn finish(self, outcome: Outcome) -> ObservedInteraction;
+    pub fn finish(self, outcome: Outcome) -> Box<ObservedInteraction>;   // 见 §4.1
     pub fn accumulated_bytes(&self) -> usize;
 }
 
@@ -66,25 +66,44 @@ pub struct AccumulatorConfig {
 
 **`apply` 的签名是刻意的**：返回 `()` 而不是 `Result`。累积器永不失败——任何异常都是 `anomalies` 里的一条记录（`docs/11` §7.3）。
 
+### 4.1 落地时的偏差
+
+**`docs/11` 里有 11 个类型只出现了名字、没有定义**（`ObservedRequest` /
+`ResponseMeta` / `ResolvedUsage` / `UsageSource` / `ObservedBlock` /
+`RawEventLog` / `UnknownRecord` / `ProviderErrorRecord` / `ParseFailureKind` /
+`TextChunk` / `RequestMeta` / `RawMode`）。本切片按 C31 先把它们补进
+`docs/11` §4.6 与 §7.5.1，再实现。
+
+| 偏差 | 为什么 |
+|---|---|
+| `ObservedEventKind` 的 5 个大变体装 `Box` | 不装的话 `BlockDelta` 变体就把枚举顶到 80 字节，守不住 §7 的 64 字节预算。装箱的都是每流一两次的罕见变体 |
+| `UsageDelta.extra` 是 `Option<Box<Bytes>>` 而非 `Option<Bytes>` | 同上：裸 `Bytes` 是 32 字节，会把 `UsageDelta` 顶到 72 |
+| `Accumulator::finish` 返回 `Box<ObservedInteraction>` | `InteractionSink::try_submit` 收的就是 `Box`，直接产出省掉一次大结构体搬运 |
+| `StreamStats` 新增 `parse_failures: u32` | 一条流里 50 次解析失败正是 `StreamStats` 存在的意义，而 `Anomaly` 里没有它的位置（那些是累积器视角的反常，解析失败是解析器视角的）。已回填 `docs/11` §7.1 |
+| `ObservedInteraction` 多了 `observer` / `observe_mode` | `docs/15` 的 `interactions` 表有这两列，不带出来就得让 F12 另找地方取 |
+| `BlockState.text` / `json_raw` 用 `TextBuf` 而非裸 `String` | cap 检查必须在 `push_str` **之前**（§5），而预算是全部 block 共享的一份，裸 `String` 表达不了 |
+| 文本预算是**全部 block 共享**的一份 | `max_accumulated_bytes` 是「这次交互最多累积多少」，不是「每个块最多多少」。后者在 `n>1` 或多 tool call 时会成倍放大 |
+
 ## 5. 实现要点
 
 - `ObservedEventKind` 的大小控制在 64 字节内，用 `CompactString`/`SmallVec`/`Bytes` 而非 `String`/`Vec`（宪法 C21）。
 - `blocks` 用 `BTreeMap<BlockCoord, BlockState>`：`BlockCoord` 是 `Copy` 的固定大小 key，无堆分配；`BTreeMap` 保证最终按坐标有序输出。
-- `TextBlockState::push` 的 cap 检查在 `push_str` **之前**，避免先扩容再发现超限。
+- `TextBuf::push` 的 cap 检查在 `push_str` **之前**，避免先扩容再发现超限。装不下时回退到最近的 UTF-8 字符边界 —— 写半个字符会让落库文本变乱码。
 - **R6 是最危险的一条**：Anthropic 的 `message_delta.usage.output_tokens` 是累积值，求和会让计费翻倍且"看起来合理"。必须有专门的单元测试锁死。
 - `estimated_output_tokens` 本切片用最简策略（`text_bytes / 4`），精度问题记在 `docs/11` OQ-5。
 
 ## 6. 任务
 
-- [ ] T1 `ir/event.rs`：`ObservedEvent` / `ObservedEventKind` / `RawRef`
-- [ ] T2 `ir/block.rs`：`BlockCoord` / `BlockKind` / `BlockDelta` / `TextChunk`
-- [ ] T3 `ir/meta.rs`：`ResponseStart` / `UsageDelta` / `Finish` / `FinishReason`
-- [ ] T4 `interaction.rs`：`ObservedInteraction` / `Outcome` / `Integrity` / `StreamStats` / `Anomaly` / `Timings`
-- [ ] T5 `sink.rs`：`InteractionSink` / `SinkFull`
-- [ ] T6 `accumulator/usage.rs`：`UsageAccumulator`（last-non-null wins）+ 估算
-- [ ] T7 `accumulator/text.rs`：`TextBlockState`（摊销 push + cap）
-- [ ] T8 `accumulator/mod.rs`：`Accumulator::apply`（本切片只处理 Text 类 block + Usage + Finish + Gap + Unknown）+ `finish`
-- [ ] T9 单元测试：§7
+- [x] T0 **先补 `docs/11`**：11 个只有名字没有定义的类型（见 §4.1）
+- [x] T1 `ir/event.rs`：`ObservedEvent` / `ObservedEventKind` / `RawRef` / `ParseFailureKind`
+- [x] T2 `ir/block.rs`：`BlockCoord` / `BlockKind` / `BlockDelta` / `TextChunk`
+- [x] T3 `ir/meta.rs`：`ResponseStart` / `UsageDelta` / `Finish` / `FinishReason`
+- [x] T4 `interaction.rs`：`ObservedInteraction` / `Outcome` / `Integrity` / `StreamStats` / `Anomaly` / `Timings` + §7.5.1 的六个产物类型
+- [x] T5 `sink.rs`：`InteractionSink` / `SinkFull`
+- [x] T6 `accumulator/usage.rs`：`UsageAccumulator`（last-non-null wins）+ 估算
+- [x] T7 `accumulator/text.rs`：`TextBuf`（摊销 push + 共享预算 + 字符边界回退）
+- [x] T8 `accumulator/mod.rs`：`Accumulator::apply` / `finish` / raw 的 selective 策略
+- [x] T9 单元测试 + `tests/accumulator_matrix.rs` + `tests/accumulator_alloc.rs`
 
 ## 7. 验收
 
@@ -93,22 +112,33 @@ cargo test -p argus-protocol accumulator
 cargo test -p argus-protocol ir
 ```
 
-- [ ] `size_of::<ObservedEventKind>() <= 64`
-- [ ] **usage last-wins 锁死测试**：喂入 `input=25` 然后 `output=1` 然后 `output=15`，断言结果是 `(25, 15)` 而非 `(25, 16)`
-- [ ] usage 缺失 → `usage_source == Missing` 且 `usage.output_tokens.is_none()` 且 `estimated_output_tokens.is_some()`
-- [ ] 文本超 cap → `truncated == true`，且**继续 apply 后续事件不 panic、usage 仍被正确记录**
-- [ ] `Gap` → `Integrity::Degraded { .. }` 且 open block 的 `degraded == true`
-- [ ] 任意时刻 `finish(ClientAborted)` 产出合法 `ObservedInteraction`
-- [ ] `Outcome::Completed` + `Integrity::Degraded` 的组合可表达（正交性）
-- [ ] bench：10k 次 text delta 的堆分配次数为 0（用 `dhat` 或计数分配器）
+- [x] `size_of::<ObservedEventKind>() <= 64` —— 实测 48
+- [x] **usage last-wins 锁死测试**：`(25, 15)` 而非 `(25, 16)`
+- [x] usage 缺失 → `Missing` + `output_tokens.is_none()` + `estimated_output_tokens.is_some()`
+- [x] 文本超 cap → `truncated == true`，且**继续 apply 后续事件不 panic、usage 仍被正确记录**
+- [x] `Gap` → `Integrity::Degraded { .. }`；**仍打开**的 block `degraded == true`，已关闭的不受影响
+- [x] 任意时刻 `finish` 产出合法 partial 结果（含一个事件都没有的情况）
+- [x] `Outcome::Completed` + `Integrity::Degraded` 与 `ClientAborted` + `Complete` 两个方向都验
+- [x] 分配行为：10k 次 text delta 的扩容次数是**对数级**（≤ 8），且稳态下为 0
+- [x] 全 workspace 测试 240 → 279（新增 39 个：19 单测 + 20 集成）
+
+> **「10k 次 delta 堆分配为 0」这条做不到，也不该做到。** 真正的全程零分配
+> 只有一开口就预留到 `max_accumulated_bytes` 才成立，而那意味着每个 block
+> 一开口吃掉 1 MiB —— 一万条并发流直接把内存打光（宪法 C9 的同一条理由）。
+> R9 的措辞本身是「稳态每 delta 零堆分配（**摊销**）」，验的就该是摊销：
+> 扩容次数对数级、且稳态下为 0。两条都有专门的测试。
+>
+> 用的是「容量没变 == 这次没分配」而不是计数分配器：后者需要 `unsafe`，
+> 而全 workspace 禁 unsafe（宪法 C8，`check-invariants.sh` 会拦）。
 
 ## 8. 交给后续
 
 | 不做的事 | 承接 |
 |---|---|
 | tool call / reasoning / signature 的累积 | F09 |
-| 乱序、重复、孤儿事件的容忍 | F09 |
+| 乱序、重复、孤儿事件的**容忍策略**（本切片只记 anomaly，不重排也不修复） | F09 |
 | `response.completed` 交叉校验 | F09 |
 | 非流式 `SyntheticEventGen` | F09 |
 | `InteractionSink` 的实现 | F12 |
-| raw 的 `selective` 策略实际裁剪 | F09 |
+| `Timings` 除 `ttft_micros` 外的字段填充 | F06（其余几段耗时只有主链路知道） |
+| `ObservedRequest.blocks`（客户端回传的 ToolResult） | F09 |

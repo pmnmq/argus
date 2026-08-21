@@ -117,6 +117,9 @@ crates/argus-core/src/
 crates/argus-protocol/src/
 ├── lib.rs           # #![forbid(unsafe_code)] + deny(unwrap_used, indexing_slicing, panic)
 ├── ir/              # ObservedEvent / BlockCoord / BlockKind / Finish / UsageDelta
+│   ├── event.rs     # ObservedEvent / ObservedEventKind / RawRef / ParseFailureKind
+│   ├── block.rs     # BlockCoord / BlockKind / BlockDelta / TextChunk
+│   └── meta.rs      # ResponseStart / UsageDelta / Finish / FinishReason
 ├── framer/
 │   ├── mod.rs       # trait Framer
 │   ├── sse.rs       # SseFramer
@@ -128,6 +131,8 @@ crates/argus-protocol/src/
 │   ├── anthropic.rs
 │   └── generic.rs   # GenericSse / GenericJson —— 认不出协议时的兜底
 ├── accumulator/     # Accumulator / BlockState / UsageAccumulator
+│   ├── usage.rs     # last-non-null wins，**绝不求和**
+│   └── text.rs      # TextBuf：摊销增长 + 共享预算上限
 ├── synthetic.rs     # 非流式 JSON → 等价事件序列
 ├── interaction.rs   # ObservedInteraction / Outcome / Integrity
 └── sink.rs          # trait InteractionSink   ← proxy/storage 解耦的关键
