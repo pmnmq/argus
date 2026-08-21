@@ -22,7 +22,10 @@
 // 不要放宽 crate 级别的设置。
 
 pub mod framer;
+pub mod interaction;
+pub mod ir;
 pub mod observer;
+pub mod sink;
 
 pub use framer::{FrameData, FrameRef, FrameSink, Framer, FramerConfig, FramerError, SseFramer};
 pub use observer::{GenericJsonObserver, GenericSseObserver, JsonShape};
