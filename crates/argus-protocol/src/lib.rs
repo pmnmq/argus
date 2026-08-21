@@ -21,6 +21,7 @@
 // 在该 mod 上写 `#![allow(clippy::unwrap_used, clippy::expect_used)]` 并说明理由，
 // 不要放宽 crate 级别的设置。
 
+pub mod accumulator;
 pub mod framer;
 pub mod interaction;
 pub mod ir;
