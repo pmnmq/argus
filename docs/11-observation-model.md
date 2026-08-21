@@ -415,6 +415,10 @@ pub struct StreamStats {
     pub dropped_bytes: u64,
     pub gap_count: u32,
     pub heartbeats: u32,
+    /// 解析失败的事件数。一条流里 50 次解析失败正是本结构存在的意义 ——
+    /// 那是「provider 规范程度」最直接的信号，而 `Anomaly` 里没有它的位置
+    /// （那些是累积器视角的反常，解析失败是解析器视角的）
+    pub parse_failures: u32,
     /// §7.3 的全部异常，每项含 BlockCoord 与 seq
     pub anomalies: SmallVec<[Anomaly; 4]>,
 }
