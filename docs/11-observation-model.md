@@ -191,6 +191,37 @@ pub enum FinishReason {
 
 `raw_reason` 与 `FinishReason::Other` 的组合是 G-O3 的体现：即使 Anthropic 明天新增 `stop_reason: "model_context_window_exceeded"`，我们也会：映射为 `Other`、保留原字符串、不报错、指标 `argus_unknown_finish_reason_total{reason="..."}` 上报，运维看到指标后可以在下个版本加映射。
 
+### 4.6 上面引用到的其余类型
+
+```rust
+/// 文本片段。
+///
+/// 绝大多数 delta 的文本在 JSON 里没有转义，可以直接与 `RawRef` 共享底层
+/// 缓冲；只有含 `\n` / `\uXXXX` 时才必须解码并新分配。两种情况分开表达，
+/// 是为了让「这次有没有多一次分配」在类型上就看得见（宪法 C21）。
+pub enum TextChunk {
+    /// 与 RawRef 共享底层 `Bytes`，clone 是引用计数
+    Shared(Bytes),
+    /// 原文含 JSON 转义，解码后新分配
+    Decoded(CompactString),
+}
+
+#[non_exhaustive]
+pub enum ParseFailureKind {
+    /// `data:` 后面不是合法 JSON
+    MalformedJson,
+    /// JSON 合法，但结构不是这个协议该有的形状
+    UnexpectedShape,
+    /// 缺了协议要求的字段（如 Anthropic 的 `event:` 行）
+    MissingField { field: CompactString },
+    /// 分帧层就失败了（`FramerError`）
+    Framing,
+}
+```
+
+`ParseFailure` 是一个**事件**而不是一个 `Err`：解析不出来是这条流的一个观测
+结论，不是 Argus 的故障。主链路不受影响（宪法 C2/C13）。
+
 ---
 
 ## 5. 跨协议映射表
@@ -413,6 +444,25 @@ pub struct BlockState {
     /// 该 block 是否经历过 Gap
     degraded: bool,
 }
+
+/// 建 Accumulator 时就已知的东西 —— 它们不来自流。
+pub struct RequestMeta {
+    pub trace: TraceContext,
+    pub observer: ObserverKind,
+    pub observe_mode: ObserveMode,
+    pub stream: bool,
+    pub observed_model: Option<CompactString>,
+    pub request_sha256: Option<[u8; 32]>,
+    pub raw_request: Option<Bytes>,
+}
+
+/// raw 事件的保存策略，见 §8.1。
+pub enum RawMode {
+    Full,
+    /// 默认。`head`/`tail` 默认各 8
+    Selective { head: u16, tail: u16 },
+    None,
+}
 ```
 
 ### 7.2 JSON 何时可以解析 —— 明确规则
@@ -547,6 +597,89 @@ pub struct Timings {
 ```
 
 `Integrity` 与 `Outcome` 是**两个正交维度**：一个流可以是 `Completed` 但 `Degraded`（正常结束但中间丢了字节），也可以是 `ClientAborted` 但 `Complete`（中断前观测到的部分是完整的）。混为一谈会让下游分析出错。
+
+#### 7.5.1 产物侧的其余类型
+
+```rust
+/// 请求侧观测到的东西。请求体本身在 `raw_request`，这里只有元信息。
+pub struct ObservedRequest {
+    /// 从 body 里**观测到**的模型名。仅用于统计，不参与路由（宪法 C33）
+    pub observed_model: Option<CompactString>,
+    pub stream: bool,
+    /// 去重与关联用（`15-storage.md` 的 `request_payloads.request_sha256`）
+    pub request_sha256: Option<[u8; 32]>,
+    /// 请求侧的内容块，如客户端回传的 `ToolResult`
+    pub blocks: Vec<ObservedBlock>,
+}
+
+pub struct ResponseMeta {
+    pub provider_response_id: Option<CompactString>,
+    /// provider **实际**使用的模型，可能与请求里写的不同
+    pub model: Option<CompactString>,
+    pub role: Option<CompactString>,
+    pub status_code: Option<u16>,
+}
+
+/// `BlockState` 收尾之后的形态。落库到 `request_payloads.blocks`。
+pub struct ObservedBlock {
+    pub coord: BlockCoord,
+    pub kind: BlockKind,
+    /// Text / Reasoning 的累积文本
+    pub text: String,
+    /// tool arguments 的原始 JSON。**从未在流中 parse**（§7.2）
+    pub json_raw: String,
+    pub signature: Option<String>,
+    pub opened_at: u32,
+    pub closed_at: Option<u32>,
+    pub truncated: bool,
+    pub degraded: bool,
+}
+
+pub struct ResolvedUsage {
+    pub input_tokens:  Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub cache_creation_input_tokens: Option<u32>,
+    pub cache_read_input_tokens:     Option<u32>,
+    pub reasoning_tokens: Option<u32>,
+    pub source: UsageSource,
+    /// **只在 provider 没给 output_tokens 时有值**，且绝不写进上面的真实
+    /// 字段 —— 计费必须能区分实测与估算（宪法 C14、§6）
+    pub estimated_output_tokens: Option<u32>,
+    pub extra: Option<Bytes>,
+}
+
+/// 对应 `15-storage.md` 的 `interactions.usage_source`。
+pub enum UsageSource {
+    /// provider 报了至少一个 token 字段
+    Reported,
+    /// provider 一个都没报，`estimated_output_tokens` 是 Argus 估的
+    Missing,
+    /// provider 报了一部分，缺的由 Argus 估算补齐（F09）
+    Estimated,
+}
+
+/// 按 §8.1 的策略保存下来的原始帧。
+pub struct RawEventLog {
+    pub mode: RawMode,
+    /// 按 `frame_seq` 有序
+    pub frames: Vec<RawRef>,
+    /// 因策略被跳过的帧数。有它才知道"只有 16 帧"是策略还是真的只有 16 帧
+    pub skipped: u32,
+}
+
+pub struct UnknownRecord {
+    pub event_name: CompactString,
+    /// 产生它的事件 seq，便于和 raw_events 对齐
+    pub seq: u32,
+    pub raw: Option<Bytes>,
+}
+
+pub struct ProviderErrorRecord {
+    pub kind: CompactString,
+    pub message: CompactString,
+    pub seq: u32,
+}
+```
 
 ---
 
