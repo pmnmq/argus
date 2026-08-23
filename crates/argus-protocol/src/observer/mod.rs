@@ -15,6 +15,7 @@
 //!
 //! 设计依据：`docs/09-observers.md` §4、`docs/11-observation-model.md` §5。
 
+pub mod anthropic;
 pub mod generic;
 
 use argus_core::{ObserveMode, ObserverKind};
@@ -26,6 +27,7 @@ use crate::{
     ir::{ObservedEvent, ObservedEventKind, RawRef},
 };
 
+pub use anthropic::AnthropicMessagesParser;
 pub use generic::{GenericJsonObserver, GenericSseObserver, JsonShape};
 
 /// 事件的接收端。
@@ -147,6 +149,10 @@ impl Emitter {
         self.stats.unknown_events = self.stats.unknown_events.saturating_add(1);
     }
 
+    pub(crate) const fn note_unknown_finish_reason(&mut self) {
+        self.stats.unknown_finish_reasons = self.stats.unknown_finish_reasons.saturating_add(1);
+    }
+
     /// 产出一个不带 raw 的事件（`Gap` / `Heartbeat` 这类不来自某一帧的）。
     pub(crate) fn emit(
         &mut self,
@@ -177,6 +183,22 @@ impl Emitter {
         self.push(out, ev);
     }
 
+    pub(crate) fn emit_parse_failure(
+        &mut self,
+        out: &mut dyn EventSink,
+        at_micros: u32,
+        reason: crate::ir::ParseFailureKind,
+        raw: &Bytes,
+    ) {
+        self.stats.parse_failures = self.stats.parse_failures.saturating_add(1);
+        self.emit_raw(
+            out,
+            at_micros,
+            ObservedEventKind::ParseFailure { reason },
+            raw,
+        );
+    }
+
     fn push(&mut self, out: &mut dyn EventSink, ev: ObservedEvent) {
         self.seq = self.seq.saturating_add(1);
         self.stats.events = self.stats.events.saturating_add(1);
@@ -190,6 +212,7 @@ impl Emitter {
 /// 省掉虚表跳转是白捡的（宪法 C21）。代价是加一个协议要动这个文件 ——
 /// 一年动两次的东西，不值得为它付出运行时代价。
 pub enum AnyObserver {
+    AnthropicMessages(AnthropicMessagesParser),
     GenericSse(GenericSseFallback),
     GenericJson(GenericJsonFallback),
 }
@@ -204,10 +227,13 @@ impl AnyObserver {
     #[must_use]
     pub fn for_kind(kind: ObserverKind, mode: ObserveMode) -> Self {
         match kind {
+            ObserverKind::AnthropicMessages => {
+                Self::AnthropicMessages(AnthropicMessagesParser::new(mode))
+            }
             ObserverKind::GenericJson => Self::GenericJson(GenericJsonFallback::new(mode)),
-            // AnthropicMessages 由 F05 填，OpenAiChat / OpenAiResponses 由 F08 填，
-            // GeminiGenerateContent 是 Phase 2 的预留位。在那之前它们都是 SSE，
-            // 兜底能给出字节数、事件数与 raw 留存
+            // OpenAiChat / OpenAiResponses 由 F08 填，GeminiGenerateContent 是
+            // Phase 2 的预留位。在那之前它们都是 SSE，兜底能给出字节数、
+            // 事件数与 raw 留存
             _ => Self::GenericSse(GenericSseFallback::new(mode)),
         }
     }
@@ -216,6 +242,7 @@ impl AnyObserver {
 impl ProtocolObserver for AnyObserver {
     fn on_frame(&mut self, frame: FrameRef<'_>, at_micros: u32, out: &mut dyn EventSink) {
         match self {
+            Self::AnthropicMessages(p) => p.on_frame(frame, at_micros, out),
             Self::GenericSse(p) => p.on_frame(frame, at_micros, out),
             Self::GenericJson(p) => p.on_frame(frame, at_micros, out),
         }
@@ -223,6 +250,7 @@ impl ProtocolObserver for AnyObserver {
 
     fn on_gap(&mut self, dropped_bytes: u64, at_micros: u32, out: &mut dyn EventSink) {
         match self {
+            Self::AnthropicMessages(p) => p.on_gap(dropped_bytes, at_micros, out),
             Self::GenericSse(p) => p.on_gap(dropped_bytes, at_micros, out),
             Self::GenericJson(p) => p.on_gap(dropped_bytes, at_micros, out),
         }
@@ -230,6 +258,7 @@ impl ProtocolObserver for AnyObserver {
 
     fn finish(&mut self, at_micros: u32, out: &mut dyn EventSink) {
         match self {
+            Self::AnthropicMessages(p) => p.finish(at_micros, out),
             Self::GenericSse(p) => p.finish(at_micros, out),
             Self::GenericJson(p) => p.finish(at_micros, out),
         }
@@ -237,6 +266,7 @@ impl ProtocolObserver for AnyObserver {
 
     fn kind(&self) -> ObserverKind {
         match self {
+            Self::AnthropicMessages(p) => p.kind(),
             Self::GenericSse(p) => p.kind(),
             Self::GenericJson(p) => p.kind(),
         }
@@ -244,6 +274,7 @@ impl ProtocolObserver for AnyObserver {
 
     fn stats(&self) -> ParserStats {
         match self {
+            Self::AnthropicMessages(p) => p.stats(),
             Self::GenericSse(p) => p.stats(),
             Self::GenericJson(p) => p.stats(),
         }
@@ -416,6 +447,23 @@ fn event_name(event: Option<&[u8]>) -> CompactString {
         .map_or_else(CompactString::default, |s| CompactString::new(s.trim()))
 }
 
+/// 零拷贝地从 `raw` 里切出 `sub`。
+///
+/// `sub` 必须是 `raw` 内部的一段（`serde` 借用出来的字段、`FrameData` 的
+/// `data` 都满足）。用地址区间判断而不是 `Bytes::slice_ref` —— 后者在不满足
+/// 时会 panic，而本 crate 禁 panic（宪法 C7）。不满足就退化成一次拷贝：
+/// 那只发生在多行 `data:` 被拼接过的帧上，实践中 AI provider 不这么发。
+pub(crate) fn share(raw: &Bytes, sub: &[u8]) -> Bytes {
+    let base = raw.as_ptr() as usize;
+    let start = sub.as_ptr() as usize;
+    match (base.checked_add(raw.len()), start.checked_add(sub.len())) {
+        (Some(base_end), Some(end)) if start >= base && end <= base_end => {
+            raw.slice(start - base..end - base)
+        }
+        _ => Bytes::copy_from_slice(sub),
+    }
+}
+
 #[cfg(test)]
 #[allow(
     clippy::unwrap_used,
@@ -449,6 +497,14 @@ mod tests {
 
     fn labels(events: &[ObservedEvent]) -> Vec<&'static str> {
         events.iter().map(|e| e.kind.as_str()).collect()
+    }
+
+    /// 判定出 Anthropic 就真的走 Anthropic 解析器。
+    #[test]
+    fn for_kind_anthropic_messages_dispatches_to_the_anthropic_parser() {
+        let observer = AnyObserver::for_kind(ObserverKind::AnthropicMessages, ObserveMode::Full);
+        assert!(matches!(observer, AnyObserver::AnthropicMessages(_)));
+        assert_eq!(observer.kind(), ObserverKind::AnthropicMessages);
     }
 
     /// 还没实现的语义协议落到 SSE 兜底，而不是 panic 也不是什么都不做。
@@ -573,6 +629,34 @@ mod tests {
         let frame_seqs: Vec<u32> =
             events.iter().filter_map(|e| e.raw.as_ref()).map(|r| r.frame_seq).collect();
         assert_eq!(frame_seqs, [1, 2], "注释也占一个帧号");
+    }
+
+    /// `share` 命中时是引用计数，不是拷贝。
+    #[test]
+    fn share_a_subslice_of_the_frame_returns_the_same_memory() {
+        let raw = Bytes::from_static(b"data: {\"text\":\"hello\"}\n\n");
+        let sub = raw.get(15..20).expect("固定下标");
+        assert_eq!(sub, b"hello");
+        let shared = share(&raw, sub);
+        assert_eq!(shared.as_ptr() as usize, sub.as_ptr() as usize);
+    }
+
+    /// 不在区间内就退化成拷贝，**不 panic**（宪法 C7）。
+    ///
+    /// `Bytes::slice_ref` 在这种情况下会 panic，所以这里没用它。
+    #[test]
+    fn share_a_slice_from_elsewhere_copies_instead_of_panicking() {
+        let raw = Bytes::from_static(b"abcdefgh");
+        let foreign = b"xyz";
+        let copied = share(&raw, foreign);
+        assert_eq!(copied, Bytes::from_static(b"xyz"));
+        assert_ne!(copied.as_ptr() as usize, foreign.as_ptr() as usize);
+    }
+
+    #[test]
+    fn share_an_empty_slice_returns_empty_bytes() {
+        let raw = Bytes::from_static(b"abc");
+        assert!(share(&raw, b"").is_empty());
     }
 
     /// 闭包 sink：`Vec` 的 impl 与 `FnMut` 的覆盖式 impl 只能有一个。

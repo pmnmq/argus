@@ -30,8 +30,8 @@ pub mod sink;
 
 pub use framer::{FrameData, FrameRef, FrameSink, Framer, FramerConfig, FramerError, SseFramer};
 pub use observer::{
-    AnyObserver, EventSink, FnSink, GenericJsonObserver, GenericSseObserver, JsonShape,
-    ObserverSink, ParserStats, ProtocolObserver,
+    AnthropicMessagesParser, AnyObserver, EventSink, FnSink, GenericJsonObserver,
+    GenericSseObserver, JsonShape, ObserverSink, ParserStats, ProtocolObserver,
 };
 
 /// 编译期常量，用于 F01 验收：证明 crate 真的被编译进依赖图。
