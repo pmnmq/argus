@@ -171,6 +171,9 @@ provider → client 路径上不得引入除 TLS 加密外的任何数据拷贝�
 
 ### C25 · fixture 必须来自录制
 禁止手写 SSE 字节作为测试数据。来源只能是：Argus 录制、SDK 录制、生产导出（脱敏后）。
+- 每个 fixture 的 `meta.toml` 必须声明 `source = "recorded" | "sdk" | "production"`（`docs/20` §5.2）
+- 解析器自己的单元测试可以用**合成**字节，但不得放进 `tests/fixtures/` ——
+  混进去之后就再也分不清哪些是真的，而这个区分就是本条存在的全部意义
 
 ### C26 · 映射表逐行覆盖
 `docs/11-observation-model.md` §5 映射表的每一行必须有对应 golden case，由 `coverage_matrix` 测试强制。
@@ -249,6 +252,7 @@ ingress **禁止**使用任何会百分号解码的提取器（`axum::extract::P
 | C8 | `#![forbid(unsafe_code)]` + grep |
 | C9 | grep `unbounded` |
 | C24 | `SplitStrategy` 矩阵测试 |
+| C25 | 每个 fixture 的 `meta.toml` 必须有合法的 `source` |
 | C26 | `coverage_matrix` 测试 |
 | C27 | `ci/check_log_fields.py` |
 | C33 | grep 禁止模型目录建表与 model→provider 路径 |

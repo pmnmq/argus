@@ -266,6 +266,13 @@ name = "anthropic tool_use with split input_json_delta"
 protocol = "anthropic_messages"
 provider_kind = "anthropic"
 stream = true
+# 这份字节是怎么来的。取值只有三个，与 §5.5 的三条途径一一对应：
+#   recorded   = Argus 自己录的
+#   sdk        = 官方 SDK 调真实 API 录的
+#   production = 从生产 raw_events 导出并脱敏的
+# 必填。宪法 C25 禁止手写 SSE 字节，而"禁止"要能查才有意义 ——
+# ci/check-invariants.sh 会拦掉缺这一行或取值不在集合内的 fixture。
+source = "sdk"
 # 期望的最终状态
 expect_outcome = "completed"
 expect_integrity = "complete"
