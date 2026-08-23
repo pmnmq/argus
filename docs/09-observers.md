@@ -267,9 +267,9 @@ data: {"type":"message_stop"}
 | A5 | usage 分两处：`message_start` 给 input，`message_delta` 给 output | 合并策略：last-non-null wins（见 `06` §6） |
 | A6 | `cache_creation_input_tokens` / `cache_read_input_tokens` 也在 usage | 必须保留，影响成本计算 |
 | A7 | `thinking` block 有 `signature`，不可篡改 | 原样保存，脱敏时特殊处理（见 `08` §9） |
-| A8 | `error` 事件可在流中任意位置出现 | 映射为 `ObservedEventKind::Error`，仍然透传 |
+| A8 | `error` 事件可在流中任意位置出现 | 映射为 `ObservedEventKind::ProviderError`，**不中止解析**，后续帧照常透传 |
 | A9 | 未来会有新 event type | 未知 event → `Unknown`，透传 + 记录 |
-| A10 | `stop_reason` 取值集合会扩展（如 `refusal`、`model_context_window_exceeded`） | `FinishReason` 保留 `Other(CompactString)` 变体 |
+| A10 | `stop_reason` 取值集合会扩展（如 `refusal`、`model_context_window_exceeded`） | 映射为 `FinishReason::Other`，原文进 `Finish.raw_reason`（`docs/11` §4.5）|
 
 ---
 

@@ -286,7 +286,7 @@ fn golden(#[files("tests/fixtures/**/meta.toml")] path: PathBuf) {
     // 对每种切分方式都跑一遍 —— 这是 G-T2 的核心
     for split in SplitStrategy::all() {
         let mut framer = SseFramer::new();
-        let mut parser = ProtocolObserver::for_protocol(case.protocol);
+        let mut parser = AnyObserver::for_kind(case.observer, ObserveMode::Full);
         let mut acc    = Accumulator::new(&case.request_meta);
         let mut events = Vec::new();
 

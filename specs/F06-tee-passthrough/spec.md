@@ -58,7 +58,7 @@ pub struct TeeStats {
 }
 
 // argus-proxy/src/observer/mod.rs
-pub struct Observer { rx: mpsc::Receiver<TeeChunk>, framer: SseFramer, parser: AnyParser,
+pub struct Observer { rx: mpsc::Receiver<TeeChunk>, framer: SseFramer, parser: AnyObserver,
                       acc: Accumulator, sink: Arc<dyn InteractionSink>, /* … */ }
 impl Observer {
     pub fn spawn(cfg: ObserverConfig, rx: mpsc::Receiver<TeeChunk>,

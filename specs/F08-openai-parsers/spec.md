@@ -45,7 +45,7 @@
 
 ## 5. 接口契约
 
-沿用 F05 定义的 `ProtocolObserver` / `EventSink` / `AnyParser`，本切片只填充两个变体：
+沿用 F05 定义的 `ProtocolObserver` / `EventSink` / `AnyObserver`，本切片给枚举**新增**两个变体（F05 里它们落在 `GenericSse` 兜底）：
 
 ```rust
 pub struct OpenAiChatParser {
@@ -79,7 +79,7 @@ pub struct OpenAiResponsesParser {
 - [ ] T5 `parser/openai_responses.rs`：`items` 表 + 二维坐标
 - [ ] T6 Responses 的 message / function_call / reasoning 三类 item
 - [ ] T7 Responses 的 completed / failed / incomplete / error / unknown
-- [ ] T8 `AnyParser::for_protocol` 补全三个分支
+- [ ] T8 `AnyObserver::for_kind` 补上 `OpenAiChat` / `OpenAiResponses` 两个分支
 - [ ] T9 fixture（见 §8）+ 单元测试
 
 ## 8. 验收
