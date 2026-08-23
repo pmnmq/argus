@@ -22,9 +22,17 @@ smallvec    = { workspace = true }
 thiserror   = { workspace = true }
 
 [dev-dependencies]
-insta    = { workspace = true }
-proptest = { workspace = true }
-rstest   = { workspace = true }
+insta     = { workspace = true }
+proptest  = { workspace = true }
+rstest    = { workspace = true }
+# 只在 bench 里用。dev-dependency 不进 `cargo tree -e normal`，
+# 所以不影响 ci/check-invariants.sh 对本 crate 依赖集的断言
+criterion = { workspace = true }
+
+# 单帧解析的耗时预算（F05 §7）。不进 CI 门禁，回归门禁是 F28 的活
+[[bench]]
+name    = "anthropic"
+harness = false
 
 [lints]
 workspace = true

@@ -170,6 +170,7 @@ dependencies = [
  "argus-core",
  "bytes",
  "compact_str",
+ "criterion",
  "insta",
  "memchr",
  "proptest",
