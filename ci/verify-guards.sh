@@ -321,6 +321,32 @@ EOF
 run_case "引入 allow_raw_proxy 却没接 allowlist 校验" "FAIL [R03 R11]" -- "$INV"
 
 echo ""
+echo "=== 8g. fixture 必须说清来源（C25） ==="
+# tests/fixtures/ 现在是空的（录制工具是 F10 R6 的交付物），所以这条护栏
+# 眼下只会空转 —— 那正是它最容易悄悄失效的时候。这里造两个假 fixture 验它。
+#
+# 注意 restore() 不管 tests/，得自己收拾干净；最后那条"回滚后仍然全绿"
+# 会替我们兜底检查有没有漏。
+PROBE="tests/fixtures/_guard_probe"
+mkdir -p "$PROBE"
+cat > "$PROBE/meta.toml" <<'EOF'
+name = "手写的假 fixture"
+protocol = "anthropic_messages"
+stream = true
+EOF
+run_case "fixture 没声明 source" "FAIL [C25]" -- "$INV"
+
+cat > "$PROBE/meta.toml" <<'EOF'
+name = "来源可疑的 fixture"
+protocol = "anthropic_messages"
+stream = true
+source = "handwritten"
+EOF
+run_case "fixture 的 source 不在允许集合内" "FAIL [C25]" -- "$INV"
+rm -rf tests/fixtures/_guard_probe
+rmdir tests/fixtures 2>/dev/null || true
+
+echo ""
 echo "=== 9. 拆 crate 需要理由（C32） ==="
 mkdir -p crates/argus-bogus/src
 cat > crates/argus-bogus/Cargo.toml <<'EOF'

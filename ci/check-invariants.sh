@@ -219,6 +219,26 @@ if find crates -name '*.rs' -not -path '*/target/*' -print0 2>/dev/null \
 fi
 ok "allow_raw_proxy 与 allowlist 校验一致"
 
+# C25：fixture 只能来自录制。"禁止手写"要能查才有意义 ——
+# 判据是每个 fixture 的 meta.toml 都声明了 source，且取值在三条途径之内。
+#
+# 现在 tests/fixtures/ 是空的（录制工具是 F10 R6 的交付物），这条检查因此
+# 暂时空转。它是那根引线：谁第一个往 tests/fixtures/ 里放东西，谁必须同时
+# 说清楚这些字节是哪来的，否则 CI 红。见 specs/F05 §7.1。
+echo "=== [C25] fixture 来源 ==="
+fixture_count=0
+while IFS= read -r meta; do
+  [ -n "$meta" ] || continue
+  fixture_count=$((fixture_count + 1))
+  src="$(grep -E '^[[:space:]]*source[[:space:]]*=' "$meta" | head -1 || true)"
+  [ -n "$src" ] || fail C25 "fixture 没声明来源：$meta" \
+    "在 meta.toml 里加一行 source = \"recorded\" | \"sdk\" | \"production\"（docs/20 §5.2）。手写的字节不是 fixture，放进解析器自己的单元测试里。"
+  echo "$src" | grep -qE '"(recorded|sdk|production)"' || fail C25 \
+    "fixture 的 source 不在允许集合内：$meta" \
+    "只有三条途径：recorded / sdk / production（docs/20 §5.5）。原文：$src"
+done < <(find tests/fixtures -name meta.toml 2>/dev/null || true)
+ok "$fixture_count 个 fixture 的来源均已声明"
+
 echo "=== [docs/20 §4.1] 测试命名 ==="
 python3 ci/check_test_names.py crates || exit 1
 
