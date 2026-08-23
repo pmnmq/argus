@@ -29,7 +29,10 @@ pub mod observer;
 pub mod sink;
 
 pub use framer::{FrameData, FrameRef, FrameSink, Framer, FramerConfig, FramerError, SseFramer};
-pub use observer::{GenericJsonObserver, GenericSseObserver, JsonShape};
+pub use observer::{
+    AnyObserver, EventSink, FnSink, GenericJsonObserver, GenericSseObserver, JsonShape,
+    ObserverSink, ParserStats, ProtocolObserver,
+};
 
 /// 编译期常量，用于 F01 验收：证明 crate 真的被编译进依赖图。
 pub const CRATE_NAME: &str = "argus-protocol";
