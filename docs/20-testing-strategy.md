@@ -665,10 +665,12 @@ async fn pg_outage_falls_back_to_spool() {
 
 ## 12. 性能测试
 
-见 `16-opentelemetry.md` §6.4 的方法论。测试代码位于 `benches/` 与 `tests/perf/`。
+见 `16-opentelemetry.md` §6.4 的方法论。bench 跟着被测的 crate 走 ——
+`crates/<crate>/benches/`，这是 cargo 的硬要求，不是风格选择；
+端到端的性能用例在 `tests/perf/`。
 
 ```rust
-// benches/framer.rs
+// crates/argus-protocol/benches/framer.rs
 fn bench_framer(c: &mut Criterion) {
     let data = load_fixture("anthropic_messages/001_simple_stream/upstream.sse");
     let mut g = c.benchmark_group("framer");

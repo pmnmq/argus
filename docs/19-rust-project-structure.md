@@ -71,9 +71,11 @@ argus/
 ├── tests/
 │   ├── fixtures/                 # golden test 数据（见 20-testing-strategy.md）
 │   └── e2e/
-├── benches/
 └── docs/
 ```
+
+`benches/` 不在这棵树上：cargo 要求 bench 跟着被测的 crate 走，所以它们在
+`crates/<crate>/benches/`。这是工具链的硬约束，不是风格选择。
 
 ### 5.1 每个 crate 的理由
 
