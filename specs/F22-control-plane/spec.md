@@ -101,7 +101,7 @@ argus keygen master
 - `Etag` 用行的 `xmin` 或一个显式 `version` 列。前者更简单但与 PG 耦合；推荐显式 `version BIGINT`。
 - **R12 的贯彻要靠类型**：`ResolvedCredential` 不实现 `Serialize`；`Debug`/`Display` 手写为 `<redacted>`。CI 加一条 grep 检查 admin handler 中不出现 credential 的序列化。
 - `config apply` 是幂等 upsert，用 `name` 作自然键。**不做双向同步**（`docs/07` §8）。
-- `/admin/diagnostics` 的价值在排障：字段要直接对应 `docs/16` 的指标，让"看一眼就知道哪里不对"。
+- `/admin/diagnostics` 的价值在排障：字段要直接对应 `docs/21` §4 的指标，让"看一眼就知道哪里不对"。
 - Admin API 的 handler 里**不得**引用 `argus-proxy` 的类型（保持 role 分离时能编译）。
 
 ## 9. 任务

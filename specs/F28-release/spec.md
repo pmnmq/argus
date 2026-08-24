@@ -6,7 +6,7 @@
 | 里程碑 | M4（**门禁 G-M4**） |
 | 依赖 | F21, F26 |
 | 主 crate | （全部） |
-| 设计依据 | `docs/18-deployment.md` §4,§8;`docs/16-opentelemetry.md` §6;`docs/22-mvp-roadmap.md` §3 M4 |
+| 设计依据 | `docs/18-deployment.md` §4,§8;`docs/21-performance.md` §6;`docs/22-mvp-roadmap.md` §3 M4 |
 | 宪法条款 | C16, C30 |
 
 ## 1. 目标
@@ -37,7 +37,7 @@
 
 - **R8** THE SYSTEM SHALL 在标准环境执行完整压测：100 / 1k / 10k / 50k 并发 × {Full, Lite, Off}。
 - **R9** THE SYSTEM SHALL 执行 7 天长稳测试（固定 5k 并发流），验证无内存泄漏与 p99 漂移。
-- **R10** THE SYSTEM SHALL 用实测数据回填 `docs/16-opentelemetry.md` §6，把「目标」单栏改为「目标 / 实测」双栏（宪法 C16）。
+- **R10** THE SYSTEM SHALL 用实测数据回填 `docs/21-performance.md` §6，把「目标」单栏改为「目标 / 实测」双栏（宪法 C16）。
 - **R11** THE SYSTEM SHALL 回填 `docs/17-reliability.md` §4 的资源模型（每流实际内存、CPU）。
 - **R12** IF 实测显著偏离目标 THEN THE SYSTEM SHALL 修订目标值并在文档中说明原因，**不得隐藏偏差**（宪法 C16）。
 - **R13** THE SYSTEM SHALL 回填以下 Open Question 的实测答案：
@@ -87,7 +87,7 @@ dist/
 
 - **R10/R12 是本切片的核心交付**，不是附属品。设计文档里现在有几十个"目标，未验证"的数字，它们必须在 v0.1 时变成有依据的值。**隐藏偏差比偏差本身更严重。**
 - 压测环境要固定并记录（CPU 型号、核数、内存、内核版本、rustc 版本、PG 版本、网络拓扑）。没有环境记录的性能数字没有意义。
-- 50k 并发的测试需要 8C16G + `Lite` 模式 + 调低各 cap（`docs/17` §4.2 的必要条件）。如果达不到，**如实记录**并修订 `docs/16` §6.2 的目标。
+- 50k 并发的测试需要 8C16G + `Lite` 模式 + 调低各 cap（`docs/17` §4.2 的必要条件）。如果达不到，**如实记录**并修订 `docs/21` §6.2 的目标。
 - R17 的滚动升级验证：起 v0.1 的两个实例 → 迁移到 v0.2 schema → 一个实例升级 → 验证两个版本同时工作 → 升级第二个。
 - Dashboard 用最简技术栈（服务端渲染或单页静态文件），**不引入前端构建链**——它是 M4 的收尾项，不是重点。
 - R21 的能力边界声明要放在文档显眼位置（README + 安全章节开头），不能藏在附录。
@@ -101,7 +101,7 @@ dist/
 - [ ] T5 标准压测环境搭建与记录
 - [ ] T6 完整压测：4 个规模 × 3 个模式
 - [ ] T7 7 天长稳（5k 并发）+ RSS/p99 曲线
-- [ ] T8 **回填 `docs/16` §6**（目标 / 实测双栏）
+- [ ] T8 **回填 `docs/21` §6**（目标 / 实测双栏）
 - [ ] T9 **回填 `docs/17` §4** 资源模型
 - [ ] T10 **回填 R13 列出的 12 个 Open Question**
 - [ ] T11 criterion 回归门禁接入 CI
@@ -123,7 +123,7 @@ dist/
 - [ ] `argus doctor` 在三种部署形态下全绿
 - [ ] **7 天长稳：RSS 曲线无单调增长**（线性回归斜率 ≈ 0）
 - [ ] **7 天长稳：p99 无漂移**（首尾各 24 小时的 p99 差异 < 10%）
-- [ ] **`docs/16` §6 中不再有任何"未验证"标记**（宪法 C16）
+- [ ] **`docs/21` §6 中不再有任何"未验证"标记**（宪法 C16）
 - [ ] R13 的 12 个 OQ 全部有实测答案或明确的"仍未验证 + 原因"
 - [ ] 滚动升级验证通过（新旧版本共存期间数据面零错误）
 - [ ] criterion 门禁能拦住人为注入的 30% 退化
@@ -140,7 +140,7 @@ dist/
 | LLM Detector | `docs/12` §7.4 |
 | `delay_window` | `docs/12` §6.3 |
 | Redis（限流 / 熔断 / taint 共享） | `docs/14` §8.5、`docs/08` §10 |
-| OpenTelemetry | `docs/16` §8 |
+| OpenTelemetry | `docs/16` §6 |
 | `LeastLatency` 路由 | `docs/08` §12-B |
 | 流式增量 JSON 检测 | `docs/11` §12-D |
 | `argus-security` 拆 crate（若达触发条件） | `docs/19` §6 |

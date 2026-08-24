@@ -6,7 +6,7 @@
 | 里程碑 | M1（**门禁 G-M1**） |
 | 依赖 | F14 |
 | 主 crate | `argus-server` |
-| 设计依据 | `docs/17-reliability.md` §8；`docs/16-opentelemetry.md` §4,§7,§9；`docs/18-deployment.md` §4 |
+| 设计依据 | `docs/17-reliability.md` §8；`docs/16-opentelemetry.md` §4,§5,§7；`docs/18-deployment.md` §4 |
 | 宪法条款 | C15, C16, C19, C20, C27 |
 
 ## 1. 目标
@@ -34,14 +34,14 @@
 - **R8** `/healthz` SHALL 只要进程存活就返回 200。
 - **R9** `/readyz` SHALL 检查：配置快照已加载、未在停机中、至少一个健康 provider。
 - **R10** `/readyz` SHALL NOT 检查 PostgreSQL（宪法 C19）。
-- **R11** THE SYSTEM SHALL 暴露 `docs/16` §4 的全部指标。
+- **R11** THE SYSTEM SHALL 暴露 `docs/21` §4 的全部指标。
 - **R12** 指标标签值 SHALL 为 `&'static str`，热路径**不得** `format!`（宪法 C21）。
 - **R13** 未知模型名 SHALL 归入 `model="_unknown"` 标签，防止基数爆炸。
 - **R14** 每个 fail-open 点 SHALL 有对应计数器（宪法 C15）。
 - **R15** THE SYSTEM SHALL 输出结构化 access log；成功请求可采样，**错误 / 安全事件 / degraded 永不采样**。
 - **R16** 日志 SHALL NOT 包含 prompt 内容、响应内容、tool arguments、任何凭据（宪法 C27，CI 强制）。
 - **R17** 日志写入 SHALL 非阻塞，队列满时丢弃日志而非阻塞请求。
-- **R18** THE SYSTEM SHALL 分解并上报 `proxy_overhead = pre_upstream + header_relay`（`docs/16` §5.1）。
+- **R18** THE SYSTEM SHALL 分解并上报 `proxy_overhead = pre_upstream + header_relay`（`docs/21` §5.1）。
 - **R19** 计时 SHALL 使用单调时钟。
 
 ## 5. 需求 · 启动与自检
@@ -78,7 +78,7 @@ argus doctor [--config path]      # 退出码 0=全绿 1=有警告 2=有错误
 
 ## 7. 实现要点
 
-- **R10 是最容易被"好心"违反的一条**。在 `/readyz` 的实现旁写明注释与 `docs/16` §9 的链接。可提供 `?strict=true` 给确实需要的场景，但默认不查。
+- **R10 是最容易被"好心"违反的一条**。在 `/readyz` 的实现旁写明注释与 `docs/16` §7 的链接。可提供 `?strict=true` 给确实需要的场景，但默认不查。
 - `lb_drain_delay` 的作用是等 K8s endpoint 传播（`docs/17` §8.2）。没有它，SIGTERM 后立刻停 accept 会 RST 掉 LB 还在发的连接。
 - R4 的 partial 提交：Observer 的 `select!` 分支收到取消后**不能直接 return**，必须走 `finish_partial` + `try_submit`。
 - 指标标签的 `&'static str` 用 interning（注意 `docs/16` OQ-3 指出的 `Box::leak` 在频繁 reload 下会累积泄漏——直接用 `string_cache` 或有界 interner）。
@@ -91,7 +91,7 @@ argus doctor [--config path]      # 退出码 0=全绿 1=有警告 2=有错误
 - [ ] T3 AuditSink 的 shutdown flush（R5）
 - [ ] T4 `ops/health.rs`：`/healthz` `/readyz`（含 R10 的注释与 `?strict`）
 - [ ] T5 `ops/metrics.rs`：exporter + 标签 interning + `_unknown` 归并
-- [ ] T6 指标接线：把 `docs/16` §4 的指标埋到 F03–F14 的各处
+- [ ] T6 指标接线：把 `docs/21` §4 的指标埋到 F03–F14 的各处
 - [ ] T7 `ops/logging.rs`：非阻塞 appender + 采样 + 永不采样的三类
 - [ ] T8 `Timings` 采集与 `proxy_overhead` 分解（R18）
 - [ ] T9 `boot.rs`：R20/R21 的依赖检查 + `rlimit` 提升

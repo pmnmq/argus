@@ -672,7 +672,7 @@ async fn pg_outage_falls_back_to_spool() {
 
 ## 12. 性能测试
 
-见 `16-opentelemetry.md` §6.4 的方法论。bench 跟着被测的 crate 走 ——
+见 `21-performance.md` §6.4 的方法论。bench 跟着被测的 crate 走 ——
 `crates/<crate>/benches/`，这是 cargo 的硬要求，不是风格选择；
 端到端的性能用例在 `tests/perf/`。
 

@@ -408,7 +408,7 @@ tee_byte_budget        = "256KiB"  # 在途字节
 - 50,000 需要 8 GB 以上，且要求：`ObserveMode` 降到 `Lite`、`max_accumulated_bytes` 调低、上游必须 HTTP/2。
 - 详细的容量规划表见 `17-reliability.md` §8。
 
-> 这些是**基于组件已知开销的估算**，不是压测结果。压测方法见 `20-testing-strategy.md` §7，实测数据回填到 `16-opentelemetry.md` §6。
+> 这些是**基于组件已知开销的估算**，不是压测结果。压测方法见 `20-testing-strategy.md` §12，实测数据回填到 `21-performance.md` §6。
 
 ### 8.4 HTTP/2 上游复用的重要性
 

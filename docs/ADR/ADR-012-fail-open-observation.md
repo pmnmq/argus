@@ -111,7 +111,7 @@ fail-open 的危险在于它是**静默的**：安全模块挂了，请求照常
 | `argus_spool_dropped_bytes_total` | **审计数据永久丢失** |
 | `argus_llm_detector_skipped_total` | 检测被跳过 |
 
-`16-opentelemetry.md` §10 给出了对应的告警规则。
+`21-performance.md` §7 给出了对应的告警规则。
 
 > **没有指标的 fail-open 等于没有安全策略。** 这条必须在实现时严格执行。
 

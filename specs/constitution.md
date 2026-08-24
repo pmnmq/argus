@@ -139,7 +139,7 @@ argus-server → argus-proxy ┐
 
 ### C19 · PostgreSQL 不是 Data Plane 的依赖
 PG 不可用时代理必须继续工作。`/readyz` **不得**检查 PostgreSQL。
-- 依据：`docs/15-storage.md` §8.5、`docs/16-opentelemetry.md` §9
+- 依据：`docs/15-storage.md` §8.5、`docs/16-opentelemetry.md` §7
 
 ### C20 · 启动严格、运行宽容
 启动时依赖缺失可以拒绝启动；运行时任何依赖故障都必须降级而非拒绝服务。

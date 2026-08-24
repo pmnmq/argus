@@ -122,7 +122,7 @@ cargo bench -p argus-proxy --bench preflight
 
 - [ ] 11 个内置规则族各有正例与反例测试
 - [ ] `SecurityAction` 的 `Ord` 与合并逻辑：多规则命中取最严，`hits` 全保留
-- [ ] **bench：100 KB 请求的 preflight p95 < 8 ms、p99 < 40 ms**（`docs/16` §6.1）
+- [ ] **bench：100 KB 请求的 preflight p95 < 8 ms、p99 < 40 ms**（`docs/21` §6.1）
 - [ ] 人为让规则求值超 50 ms → 放行 + `argus_preflight_timeout_total` +1 + `verdict.degraded = Timeout`
 - [ ] 注入规则 panic → 放行 + 计数 + 进程存活（宪法 C17）
 - [ ] 畸形 JSON body → `RawFallback` 且 `credential-leak` 仍能检出（R11/R12）
