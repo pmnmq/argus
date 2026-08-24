@@ -18,11 +18,15 @@
 
 pub mod panic;
 pub mod rules;
+pub mod task;
 
 use argus_core::{ObserverKind, ResolvedTarget};
 use http::HeaderValue;
 
-pub use self::rules::{ObserverRule, ObserverRules, RequestFacts, SelectCtx};
+pub use self::{
+    rules::{ObserverRule, ObserverRules, RequestFacts, SelectCtx},
+    task::{Observer, ObserverConfig, ResponseFacts},
+};
 
 /// Raw 模式的形状猜测表。
 ///
