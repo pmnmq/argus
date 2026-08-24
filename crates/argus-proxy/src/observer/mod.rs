@@ -16,6 +16,7 @@
 //! 选错了不会怎样：后果是**观测数据降级**，主链路一个字节都不受影响 ——
 //! 它根本不看 Observer 的输出（§4.4）。
 
+pub mod panic;
 pub mod rules;
 
 use argus_core::{ObserverKind, ResolvedTarget};
