@@ -86,3 +86,13 @@ criterion = { workspace = true }
 
 [lints]
 workspace = true
+
+# 压测用的两个可执行体。都要 testkit（MockProvider 在那后面），
+# 所以 required-features 必须写，否则默认构建会因为找不到模块而失败。
+[[example]]
+name              = "mock-provider"
+required-features = ["testkit"]
+
+[[example]]
+name              = "loadgen"
+required-features = ["testkit"]
