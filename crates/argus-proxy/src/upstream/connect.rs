@@ -160,10 +160,38 @@ impl ArgusConnector {
         resolver: Arc<CheckedResolver>,
         connect_timeout: core::time::Duration,
     ) -> Result<Self, ProxyError> {
+        Self::build(policy, resolver, connect_timeout, &[])
+    }
+
+    /// 额外信任一组根证书。**只给 testkit 用**。
+    ///
+    /// 生产路径上没有这个口子是刻意的：一旦能从外面塞根证书进来，
+    /// 「信任谁」就变成了运行期配置，而这类配置最后总会被人用来
+    /// 关掉证书校验。要支持私有 CA 时应当先在 `docs/06` 里定清楚。
+    ///
+    /// # Errors
+    ///
+    /// 同 [`Self::new`]。
+    #[cfg(feature = "testkit")]
+    pub fn trusting(
+        policy: Arc<TargetPolicy>,
+        resolver: Arc<CheckedResolver>,
+        connect_timeout: core::time::Duration,
+        extra_roots: &[rustls::pki_types::CertificateDer<'static>],
+    ) -> Result<Self, ProxyError> {
+        Self::build(policy, resolver, connect_timeout, extra_roots)
+    }
+
+    fn build(
+        policy: Arc<TargetPolicy>,
+        resolver: Arc<CheckedResolver>,
+        connect_timeout: core::time::Duration,
+        extra_roots: &[rustls::pki_types::CertificateDer<'static>],
+    ) -> Result<Self, ProxyError> {
         Ok(Self {
             policy,
             resolver,
-            tls: TlsConnector::from(Arc::new(tls_config()?)),
+            tls: TlsConnector::from(Arc::new(tls_config(extra_roots)?)),
             connect_timeout,
         })
     }
@@ -207,10 +235,18 @@ impl Service<Uri> for ArgusConnector {
     }
 }
 
-/// 只信 webpki 的根证书集合，ALPN 优先 h2（宪法 C23）。
-fn tls_config() -> Result<ClientConfig, ProxyError> {
+/// 只信 webpki 的根证书集合（外加 testkit 塞进来的那几张），
+/// ALPN 优先 h2（宪法 C23）。
+fn tls_config(
+    extra_roots: &[rustls::pki_types::CertificateDer<'static>],
+) -> Result<ClientConfig, ProxyError> {
     let mut roots = RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    for cert in extra_roots {
+        roots
+            .add(cert.clone())
+            .map_err(|e| ProxyError::Internal(e.to_string().into()))?;
+    }
 
     // 显式给 provider 而不是依赖进程级默认值：库不该悄悄改全局状态，
     // 而且没装默认值时 `builder()` 会 panic，那是最难查的一类启动失败
@@ -240,7 +276,7 @@ mod tests {
     /// 只会表现为"连接数怎么这么多"。
     #[test]
     fn tls_config_offers_h2_ahead_of_http11() {
-        let cfg = tls_config().expect("根证书可加载");
+        let cfg = tls_config(&[]).expect("根证书可加载");
         assert_eq!(
             cfg.alpn_protocols,
             vec![b"h2".to_vec(), b"http/1.1".to_vec()]
@@ -250,7 +286,7 @@ mod tests {
     /// 不能只提 h2：只支持 1.1 的自建上游（vLLM、Ollama）会连不上。
     #[test]
     fn tls_config_still_offers_http11_as_a_fallback() {
-        let cfg = tls_config().expect("根证书可加载");
+        let cfg = tls_config(&[]).expect("根证书可加载");
         assert!(cfg.alpn_protocols.contains(&b"http/1.1".to_vec()));
     }
 

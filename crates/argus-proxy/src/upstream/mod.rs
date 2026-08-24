@@ -49,13 +49,41 @@ impl UpstreamClient {
         resolver: Arc<CheckedResolver>,
         timeouts: Timeouts,
     ) -> Result<Self, ProxyError> {
-        let connector = ArgusConnector::new(policy, resolver, timeouts.connect)?;
+        Ok(Self::from_connector(ArgusConnector::new(
+            policy,
+            resolver,
+            timeouts.connect,
+        )?))
+    }
+
+    /// 额外信任一组根证书。**只给 testkit 用**，理由见
+    /// [`ArgusConnector::trusting`]。
+    ///
+    /// # Errors
+    ///
+    /// 同 [`Self::new`]。
+    #[cfg(feature = "testkit")]
+    pub fn trusting(
+        policy: Arc<TargetPolicy>,
+        resolver: Arc<CheckedResolver>,
+        timeouts: Timeouts,
+        extra_roots: &[rustls::pki_types::CertificateDer<'static>],
+    ) -> Result<Self, ProxyError> {
+        Ok(Self::from_connector(ArgusConnector::trusting(
+            policy,
+            resolver,
+            timeouts.connect,
+            extra_roots,
+        )?))
+    }
+
+    fn from_connector(connector: ArgusConnector) -> Self {
         let inner = Client::builder(TokioExecutor::new())
             // h2 优先由 ALPN 决定（宪法 C23），这里不写死 http2_only ——
             // 写死了就连不上只支持 1.1 的自建上游
             .pool_idle_timeout(core::time::Duration::from_secs(90))
             .build(connector);
-        Ok(Self { inner })
+        Self { inner }
     }
 
     /// 发一次请求，拿到 response header 就返回。
