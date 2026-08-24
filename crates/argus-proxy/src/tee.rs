@@ -246,6 +246,20 @@ impl TeeReceiver {
         Some(chunk)
     }
 
+    /// 非阻塞地取一段。取不到就返回 `Err`，**不等**。
+    ///
+    /// 给「不能 await 的地方」用（分配计数测试要在同步上下文里把队列抽干，
+    /// 一进 async runtime，量到的就全是 runtime 自己的分配了）。
+    ///
+    /// # Errors
+    ///
+    /// 队列空或已关闭时返回 [`mpsc::error::TryRecvError`]。
+    pub fn try_recv(&mut self) -> Result<TeeChunk, mpsc::error::TryRecvError> {
+        let chunk = self.rx.try_recv()?;
+        self.in_flight.fetch_sub(chunk.data.len() as u64, Ordering::Relaxed);
+        Ok(chunk)
+    }
+
     /// 结束原因与主链路的转发计数。**只在 [`Self::recv`] 返回 `None` 之后读**。
     #[must_use]
     pub fn report(&self) -> &TeeReport {

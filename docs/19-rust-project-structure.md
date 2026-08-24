@@ -322,6 +322,9 @@ rstest     = "0.23"
 # MockProvider 的自签证书。只有开了 h2 才测得出 ALPN 协商，而 ALPN 只在
 # TLS 上存在 —— 明文 h2c 走的是另一条协商路径，验不了宪法 C23 那件事。
 rcgen      = { version = "0.13", default-features = false, features = ["ring","pem"] }
+# 堆分配计数。自己写 #[global_allocator] 要 `unsafe impl GlobalAlloc`，
+# 那是宪法 C8 禁止的；dhat 把 unsafe 关在它自己的 crate 里（F07 §5）。
+dhat       = "0.3"
 
 [profile.release]
 opt-level     = 3
