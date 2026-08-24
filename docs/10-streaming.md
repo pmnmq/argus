@@ -251,6 +251,8 @@ try_send 失败
 
 **`integrity` 字段是必须落库的**。任何下游分析（安全、计费、统计）都必须能区分「这个 interaction 是完整的」和「这个 interaction 缺了一段」。没有这个字段，有损观测就变成了静默的数据污染。
 
+**最后一段丢弃没有车可搭**：`gap_before` 是挂在「下一个成功发送的 chunk」上报出去的，所以流末尾的那段丢弃报不出来。极端情况下（每个 chunk 都超字节预算）一次都送不出去，旁路会看到一条**空流**并把它记成 `Complete`——正是本节要避免的那种静默污染。因此收尾时必须把残留的 `pending_gap` 也写进 `TeeReport`，由 Observer 在流末尾补一次 `gap_before`（走与正常路径完全相同的入口：一个 `data` 为空、`gap_before > 0` 的 `TeeChunk`，framer 据此 resync 并产出 `Gap` 事件）。
+
 ### 6.5 三层保护小结
 
 ```text

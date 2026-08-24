@@ -64,7 +64,11 @@ impl fmt::Debug for TeeChunk {
     }
 }
 
-/// 旁路通道的终止原因。它总是 tee channel 上的最后一条消息。
+/// 旁路通道的终止原因。
+///
+/// 它**不走 tee channel**：有界 channel 的 `try_send` 恰好在队列满时失败，
+/// 而那正是结束原因最要紧的时刻。终止原因改由旁路侧的 `TeeReport`
+/// （`OnceLock`，先写者胜）带出，与丢弃统计、尾部 `gap_before` 一起。
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum TeeEnd {
     /// 上游 body 正常读完。
