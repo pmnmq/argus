@@ -40,6 +40,7 @@ hyper        = { version = "1", features = ["client","server","http1","http2"] }
 hyper-util   = { version = "0.1", features = ["client-legacy","server-auto","tokio"] }
 http         = "1"
 http-body    = "1"
+pin-project-lite = "0.2"
 http-body-util = "0.1"
 axum         = { version = "0.8", default-features = false, features = ["http1","http2","json","tokio"] }
 tower        = { version = "0.5", features = ["util","limit"] }

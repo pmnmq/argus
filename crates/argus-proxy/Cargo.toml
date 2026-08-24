@@ -21,6 +21,7 @@ hyper          = { workspace = true }
 hyper-util     = { workspace = true }
 http           = { workspace = true }
 http-body      = { workspace = true }
+pin-project-lite = { workspace = true }
 http-body-util = { workspace = true }
 axum           = { workspace = true }
 tower          = { workspace = true }
