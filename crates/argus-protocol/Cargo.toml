@@ -34,5 +34,13 @@ criterion = { workspace = true }
 name    = "anthropic"
 harness = false
 
+[[bench]]
+name    = "framer"
+harness = false
+
+[[bench]]
+name    = "accumulator"
+harness = false
+
 [lints]
 workspace = true
