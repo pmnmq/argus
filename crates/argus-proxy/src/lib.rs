@@ -11,6 +11,7 @@
 pub mod body;
 pub mod ingress;
 pub mod observer;
+pub mod sink;
 pub mod target;
 pub mod tee;
 pub mod upstream;
