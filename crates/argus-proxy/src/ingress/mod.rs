@@ -21,6 +21,7 @@
 //! 设计依据：`docs/03-managed-provider-mode.md` §4–7、
 //! `docs/04-raw-proxy-mode.md` §4–5、`docs/06-data-plane.md` §6.1。
 
+pub mod error;
 pub mod managed;
 pub mod path;
 pub mod raw;
@@ -34,10 +35,13 @@ use argus_core::{
 use http::request::Parts;
 
 pub use self::{
+    error::render,
     managed::ManagedResolver,
     path::{is_valid_profile_name, split_first_segment},
     raw::{RawForm, RawResolver, detect_raw_form},
 };
+
+pub use crate::upstream::headers::REQUEST_ID_HEADER;
 
 /// Managed 模式的 path 前缀，长 10。
 pub const MANAGED_PREFIX: &str = "/provider/";
