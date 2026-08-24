@@ -108,9 +108,18 @@ where
                         sink.offer(data.clone(), this.stats);
                     }
                 }
+                // ⚠️ 不能只等 `None`：`Content-Length` 满足之后 hyper 就不再
+                // poll 了，那个 `None` 永远不会来。漏掉这一句，**每一个定长
+                // 响应**都会在 body 被 drop 时记成 ClientAborted
+                if this.inner.is_end_stream() {
+                    this.sink.take().map(|s| s.close(TeeEnd::Eof, *this.stats));
+                }
             }
-            Some(Err(_)) => this.sink.take().map(|s| s.close(TeeEnd::UpstreamError)),
-            None          => this.sink.take().map(|s| s.close(TeeEnd::Eof)),
+            Some(Err(e)) => {
+                let why = TeeEnd::UpstreamError(e.to_string().into());
+                this.sink.take().map(|s| s.close(why, *this.stats));
+            }
+            None => { this.sink.take().map(|s| s.close(TeeEnd::Eof, *this.stats)); }
         };
         Poll::Ready(polled)
     }
