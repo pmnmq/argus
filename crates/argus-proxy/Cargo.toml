@@ -68,6 +68,8 @@ default = []
 redis   = ["dep:redis"]
 
 [dev-dependencies]
+# test-util 只在测试里用：tokio::time::pause 让超时用例秒级跑完而不是真等 30s
+tokio     = { workspace = true, features = ["test-util"] }
 insta     = { workspace = true }
 proptest  = { workspace = true }
 rstest    = { workspace = true }

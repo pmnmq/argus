@@ -8,6 +8,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod body;
 pub mod ingress;
 pub mod observer;
 pub mod target;
