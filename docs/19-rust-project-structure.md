@@ -143,6 +143,9 @@ crates/argus-proxy/src/
 ├── lib.rs
 ├── ingress/         # Axum router / **按原始字节切 path** / body ingest / ErrorRenderer
 │   ├── path.rs      # 切分与 profile 名校验的纯函数层
+│   ├── handler.rs   # router() 与 P1–P8 主链路
+│   ├── error.rs     # ErrorRenderer：按 observer 形态渲染错误体
+│   ├── registry.rs  # ProfileRegistry 的静态实现（Control Plane 接管前）
 │   ├── managed.rs   # /provider/{name}/… 的 Resolver
 │   └── raw.rs       # /raw/… 的 Resolver（两种 URL 形式）
 ├── target/          # Target Policy：scheme/CIDR/端口判定、DNS 解析与连接时确认
@@ -153,10 +156,16 @@ crates/argus-proxy/src/
 ├── auth/            # KeyCache / 认证 / 授权 / EffectiveLimits
 ├── quota/           # GCRA 限流 / token & cost 软配额
 ├── upstream/        # hyper client / header 变换 / retry 状态机 / 连接池
-├── tee.rs           # TeeBody / TeeHandle
+│   ├── connect.rs   # ArgusConnector：PinnedConnector + TLS + ALPN h2 优先
+│   └── headers.rs   # 上游 header 构造：剥离 hop-by-hop、注入凭据
+├── tee.rs           # TeeBody / TeeHandle / TeeReceiver / TeeReport
+├── body.rs          # Cancellable：idle / total 超时与取消原因
 ├── gate.rs          # GatedBody（ToolGate 的主链路侧）
+├── sink.rs          # 落库前的过渡 InteractionSink 实现（LogSink 等）
 ├── observer/        # Observer task / ObserverKind 解析 / ObserveMode 决策
 │   ├── mod.rs       # 四级判定：provisional / resolve_observer / Raw 猜测表
+│   ├── task.rs      # Observer task 主循环：消费 tee、收尾、提交
+│   ├── panic.rs     # 解析器 panic 隔离（catch_unwind）
 │   └── rules.rs     # observer_rules 有序表与 AND 匹配
 └── security/        # 规则引擎 / PreflightGuard / StreamGuard / ToolGate / PostGuard
     ├── rules/
