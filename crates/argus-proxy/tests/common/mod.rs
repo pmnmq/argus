@@ -7,7 +7,9 @@
 
 use std::sync::Arc;
 
-use argus_core::{CredentialMode, ObserverKind, ProviderProfileId, RetryPolicy, Timeouts};
+use argus_core::{
+    CredentialMode, ObserveMode, ObserverKind, ProviderProfileId, RetryPolicy, Timeouts,
+};
 use argus_proxy::ingress::{ProfileRegistry, ProfileView};
 use http::{Request, request::Parts};
 
@@ -19,6 +21,7 @@ pub struct TestProfile {
     pub enabled: bool,
     pub credential: CredentialMode,
     pub observer: ObserverKind,
+    pub observe: ObserveMode,
     pub timeouts: Timeouts,
     pub retry: Arc<RetryPolicy>,
 }
@@ -32,6 +35,7 @@ impl TestProfile {
             enabled: true,
             credential: CredentialMode::None,
             observer: ObserverKind::OpenAiChat,
+            observe: ObserveMode::Full,
             timeouts: Timeouts::default(),
             retry: Arc::new(RetryPolicy::default()),
         }
@@ -70,6 +74,7 @@ impl ProfileRegistry for TestProfiles {
             enabled: p.enabled,
             credential: &p.credential,
             observer: p.observer,
+            observe: p.observe,
             timeouts: p.timeouts,
             retry: &p.retry,
         })

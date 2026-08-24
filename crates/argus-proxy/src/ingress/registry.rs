@@ -9,7 +9,9 @@
 
 use std::sync::Arc;
 
-use argus_core::{CredentialMode, ObserverKind, ProviderProfileId, RetryPolicy, Timeouts};
+use argus_core::{
+    CredentialMode, ObserveMode, ObserverKind, ProviderProfileId, RetryPolicy, Timeouts,
+};
 
 use super::{ProfileRegistry, ProfileView};
 
@@ -22,6 +24,7 @@ pub struct StaticRegistry {
     enabled: bool,
     credential: CredentialMode,
     observer: ObserverKind,
+    observe: ObserveMode,
     timeouts: Timeouts,
     retry: Arc<RetryPolicy>,
 }
@@ -39,6 +42,7 @@ impl StaticRegistry {
             enabled: true,
             credential: CredentialMode::None,
             observer: ObserverKind::AnthropicMessages,
+            observe: ObserveMode::Full,
             timeouts: Timeouts::default(),
             retry: Arc::new(RetryPolicy::default()),
         }
@@ -47,6 +51,12 @@ impl StaticRegistry {
     #[must_use]
     pub fn with_credential(mut self, credential: CredentialMode) -> Self {
         self.credential = credential;
+        self
+    }
+
+    #[must_use]
+    pub const fn with_observe_mode(mut self, observe: ObserveMode) -> Self {
+        self.observe = observe;
         self
     }
 
@@ -83,6 +93,7 @@ impl ProfileRegistry for StaticRegistry {
             enabled: self.enabled,
             credential: &self.credential,
             observer: self.observer,
+            observe: self.observe,
             timeouts: self.timeouts,
             retry: &self.retry,
         })

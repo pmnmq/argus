@@ -18,7 +18,8 @@ use std::{env, sync::Arc};
 
 use anyhow::Context as _;
 use argus_core::{
-    CredentialKind, CredentialMode, ObserverKind, ResolvedCredential, Timeouts, ids::CredentialId,
+    CredentialKind, CredentialMode, ObserveMode, ObserverKind, ResolvedCredential, Timeouts,
+    ids::CredentialId,
 };
 use argus_proxy::{
     body::CancelHandle,
@@ -56,7 +57,7 @@ fn self_check() {
         argus_proxy::CRATE_NAME,
         argus_storage::CRATE_NAME,
     );
-    println!("usage:     argus serve   （需要 ARGUS_UPSTREAM）");
+    println!("usage:     argus serve   （需要 ARGUS_UPSTREAM；ARGUS_OBSERVE=full|lite|off）");
 }
 
 async fn serve() -> anyhow::Result<()> {
@@ -71,8 +72,10 @@ async fn serve() -> anyhow::Result<()> {
         .context("需要 ARGUS_UPSTREAM，例如 https://api.anthropic.com")?;
     let profile = env::var("ARGUS_PROFILE").unwrap_or_else(|_| "default".into());
 
+    let observe = observe_mode_from_env();
     let registry = StaticRegistry::new(profile.clone(), upstream.clone())
         .with_observer(observer_from_env())
+        .with_observe_mode(observe)
         .with_credential(credential_from_env()?);
 
     let policy = Arc::new(target_policy()?);
@@ -94,7 +97,7 @@ async fn serve() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .with_context(|| format!("绑定 {listen} 失败"))?;
-    tracing::info!(%listen, %upstream, %profile, "argus 已启动");
+    tracing::info!(%listen, %upstream, %profile, observe = observe.as_str(), "argus 已启动");
     tracing::info!("试试： curl -X POST http://{listen}/provider/{profile}/v1/messages -d '{{}}'");
 
     axum::serve(listener, router(state))
@@ -130,6 +133,19 @@ fn target_policy() -> anyhow::Result<TargetPolicy> {
         cfg.allow_cidrs.push("::1/128".into());
     }
     TargetPolicy::compile(&cfg).map_err(|e| anyhow::anyhow!("Target Policy 配置无效：{e}"))
+}
+
+/// `ARGUS_OBSERVE` 决定观测力度。
+///
+/// F07 的对照法要在 `full` 与 `off` 两种模式下各测一轮，用差值把观测的
+/// 成本单独摘出来（F07 R4 / G4）。**什么时候**自动降级是 F20 的策略，
+/// 这里只是一个手动开关。
+fn observe_mode_from_env() -> ObserveMode {
+    match env::var("ARGUS_OBSERVE").as_deref() {
+        Ok("off") => ObserveMode::Off,
+        Ok("lite") => ObserveMode::Lite,
+        _ => ObserveMode::Full,
+    }
 }
 
 fn observer_from_env() -> ObserverKind {

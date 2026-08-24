@@ -19,7 +19,7 @@
 
 use std::sync::Arc;
 
-use argus_core::{ObserverKind, ProxyError, ResolvedTarget, TraceContext};
+use argus_core::{ObserveMode, ObserverKind, ProxyError, ResolvedTarget, TraceContext};
 use argus_protocol::{accumulator::RequestMeta, sink::InteractionSink};
 use axum::{
     Router,
@@ -41,7 +41,7 @@ use crate::{
         Observer, ObserverConfig, ObserverRules, RequestFacts, ResponseFacts, provisional,
         resolve_observer,
     },
-    tee::{TeeBody, TeeHandle},
+    tee::{TeeBody, TeeHandle, TeeReport},
     upstream::{UpstreamClient, headers::hop_by_hop},
 };
 
@@ -161,25 +161,38 @@ async fn run(
     let streaming = mime_of(&resp_parts.headers) == Some("text/event-stream");
 
     // ── P7：挂 tee，旁路开工 ────────────────────────────────────────
-    let (tee, rx) = TeeHandle::new(state.cfg.tee_channel_capacity, state.cfg.tee_byte_budget);
-    let report = tee.report();
-    Observer::spawn(
-        state.cfg.observer,
-        rx,
-        request_meta(trace, &target, observer, streaming, &raw_request),
-        ResponseFacts {
-            status: resp_parts.status.as_u16(),
-            request_started: started,
-            queued_micros,
-            upstream_header_micros: sent.header_micros,
-        },
-        Arc::clone(&state.sink),
-    );
+    //
+    // `ObserveMode::Off` 的语义就是「Tee 不挂载」（`argus_core::ObserveMode`
+    // 的文档、`docs/10` §6.3）。照挂不误的话 Off 只是「照样 tee、照样解析、
+    // 最后把结果扔掉」，既省不下 CPU 也省不下内存 —— 而它存在的全部理由
+    // 就是过载时省下这两样。
+    //
+    // 这里只实现**机制**；什么时候切到 Off 是降级策略，归 F20。
+    let observing = target.observe != ObserveMode::Off;
+    let (body, report) = if observing {
+        let (tee, rx) = TeeHandle::new(state.cfg.tee_channel_capacity, state.cfg.tee_byte_budget);
+        let report = tee.report();
+        Observer::spawn(
+            state.cfg.observer,
+            rx,
+            request_meta(trace, &target, observer, streaming, &raw_request),
+            ResponseFacts {
+                status: resp_parts.status.as_u16(),
+                request_started: started,
+                queued_micros,
+                upstream_header_micros: sent.header_micros,
+            },
+            Arc::clone(&state.sink),
+        );
+        (TeeBody::new(incoming, tee), report)
+    } else {
+        (TeeBody::detached(incoming), Arc::new(TeeReport::default()))
+    };
 
     // ── P8：原样返回 ────────────────────────────────────────────────
     let cancel = state.shutdown.child(argus_core::CancelReason::Shutdown);
     let piped = Cancellable::new(
-        TeeBody::new(incoming, tee),
+        body,
         cancel,
         report,
         target.timeouts.idle_frame,

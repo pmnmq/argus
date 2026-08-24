@@ -9,7 +9,7 @@
 //! 「只有一条」是刻意的。任何「智能」拼接（发现两边都有 `/v1` 就去掉一个）
 //! 都会在某个 `base_url` 上猜错，而猜错的表现是上游 404 —— 日志里一切正常。
 
-use argus_core::{ObserveMode, ProxyError, ResolvedTarget, TargetOrigin};
+use argus_core::{ProxyError, ResolvedTarget, TargetOrigin};
 use http::Uri;
 
 use super::{
@@ -77,8 +77,9 @@ impl TargetResolver for ManagedResolver {
             observer: profile.observer,
             timeouts: profile.timeouts,
             retry: std::sync::Arc::clone(profile.retry),
-            // 采样决策不在 R02 范围内（→ R04 / F20）
-            observe: ObserveMode::default(),
+            // Profile 说了算。**什么时候**降级是 F20 的策略，
+            // 这里只是把配置里的那个值送过去
+            observe: profile.observe,
         })
     }
 }

@@ -31,8 +31,8 @@ pub mod registry;
 use std::sync::Arc;
 
 use argus_core::{
-    CredentialMode, ObserverKind, ProviderProfileId, ProxyError, ResolvedTarget, RetryPolicy,
-    Timeouts,
+    CredentialMode, ObserveMode, ObserverKind, ProviderProfileId, ProxyError, ResolvedTarget,
+    RetryPolicy, Timeouts,
 };
 use http::request::Parts;
 
@@ -96,6 +96,8 @@ pub struct ProfileView<'a> {
     pub credential: &'a CredentialMode,
     /// 默认 observer。R04 的 `observer_rules` 会在此基础上细化
     pub observer: ObserverKind,
+    /// 观测力度。`Off` 时 tee 根本不挂载（`argus_core::ObserveMode`）
+    pub observe: ObserveMode,
     pub timeouts: Timeouts,
     pub retry: &'a Arc<RetryPolicy>,
 }
