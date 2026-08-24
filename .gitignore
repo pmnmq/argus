@@ -7,3 +7,7 @@
 # 本地覆盖的配置（含真实凭据，绝不入库）
 /config/local.toml
 .env
+
+# 压测产物。BASELINE.md 是要提交的结论，results/ 是每次跑出来的原始
+# JSON —— 它带机器指纹与时间戳，提交进来只会制造 diff 噪声
+bench/results/

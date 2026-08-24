@@ -99,6 +99,16 @@ tools:
     {{ cargo }} install cargo-deny --locked
     rustup toolchain install nightly --component rustfmt
 
+# 端到端压测（对照法）。例：just bench-e2e --streams 100 --observe full
+[group('杂项')]
+bench-e2e *args:
+    @./ci/bench-e2e.sh {{ args }}
+
+# G-M0 门禁判定。读 bench/results/ 下的 JSON，未判定项与失败同等对待
+[group('杂项')]
+gate-m0:
+    @./ci/gate-m0.sh
+
 # 清掉构建产物
 [group('杂项')]
 clean:
