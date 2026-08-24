@@ -25,6 +25,7 @@ pub mod error;
 pub mod managed;
 pub mod path;
 pub mod raw;
+pub mod registry;
 
 use std::sync::Arc;
 
@@ -39,6 +40,7 @@ pub use self::{
     managed::ManagedResolver,
     path::{is_valid_profile_name, split_first_segment},
     raw::{RawForm, RawResolver, detect_raw_form},
+    registry::StaticRegistry,
 };
 
 pub use crate::upstream::headers::REQUEST_ID_HEADER;
