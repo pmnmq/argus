@@ -22,6 +22,7 @@
 //! `docs/04-raw-proxy-mode.md` §4–5、`docs/06-data-plane.md` §6.1。
 
 pub mod error;
+pub mod handler;
 pub mod managed;
 pub mod path;
 pub mod raw;
@@ -37,6 +38,7 @@ use http::request::Parts;
 
 pub use self::{
     error::render,
+    handler::{ProxyConfig, ProxyState, router},
     managed::ManagedResolver,
     path::{is_valid_profile_name, split_first_segment},
     raw::{RawForm, RawResolver, detect_raw_form},
