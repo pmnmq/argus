@@ -22,6 +22,7 @@ argus-storage  = { workspace = true }
 
 tokio      = { workspace = true }
 tokio-util = { workspace = true }
+http       = { workspace = true }
 hyper      = { workspace = true }
 hyper-util = { workspace = true }
 axum       = { workspace = true }

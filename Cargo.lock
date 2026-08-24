@@ -248,6 +248,7 @@ dependencies = [
  "chrono",
  "clap",
  "figment",
+ "http",
  "humantime-serde",
  "hyper",
  "hyper-util",
