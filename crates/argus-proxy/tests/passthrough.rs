@@ -4,8 +4,6 @@
 //! （ADR-009）：主链路零拷贝、主链路不等旁路、丢弃可检测、旁路挂了主链路
 //! 不受影响。
 
-mod mock_provider;
-
 use std::{
     sync::{Arc, Mutex},
     time::Instant,
@@ -23,13 +21,13 @@ use argus_proxy::{
     observer::{ObserverConfig, ObserverRules},
     target::{CheckedResolver, SystemResolver, TargetPolicy, TargetPolicyConfig},
     tee::{TeeBody, TeeHandle},
+    testkit::{MockProvider, Scenario},
     upstream::UpstreamClient,
 };
 use axum::body::Body;
 use bytes::Bytes;
 use http::{Request, Response, StatusCode, header::CONTENT_TYPE};
 use http_body_util::BodyExt;
-use mock_provider::{MockProvider, Script};
 use tokio::time::{Duration, sleep, timeout};
 use tower::ServiceExt as _;
 
@@ -85,12 +83,12 @@ struct Harness {
     provider: MockProvider,
 }
 
-async fn harness(script: Script, serves: usize) -> Harness {
-    harness_with(script, serves, ProxyConfig::default()).await
+async fn harness(scenario: Scenario) -> Harness {
+    harness_with(scenario, ProxyConfig::default()).await
 }
 
-async fn harness_with(script: Script, serves: usize, cfg: ProxyConfig) -> Harness {
-    let provider = MockProvider::start(script, serves).await;
+async fn harness_with(scenario: Scenario, cfg: ProxyConfig) -> Harness {
+    let provider = MockProvider::raw(scenario).await;
     let sink = Arc::new(CollectingSink::default());
     let policy = Arc::new(loopback_policy());
     let resolver = Arc::new(CheckedResolver::new(Arc::new(SystemResolver::default())));
@@ -130,9 +128,8 @@ const REQ: &str = r#"{"model":"claude-x","max_tokens":16,"messages":[]}"#;
 /// 宪法 C1：转发的字节与上游发的**完全一致**，一个都不多一个都不少。
 #[tokio::test]
 async fn proxy_a_streaming_response_forwards_every_upstream_byte() {
-    let script = Script::anthropic_stream();
-    let expected = script.body();
-    let h = harness(script, 1).await;
+    let h = harness(Scenario::anthropic_sample()).await;
+    let expected = h.provider.expected_body();
 
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -147,7 +144,7 @@ async fn proxy_a_streaming_response_forwards_every_upstream_byte() {
 /// 上游的 status 原样透传 —— 透明网关不翻译、不吞掉 4xx/5xx。
 #[tokio::test]
 async fn proxy_a_non_2xx_upstream_passes_the_status_through_untouched() {
-    let h = harness(Script::json(r#"{"error":"nope"}"#).with_status(429), 1).await;
+    let h = harness(Scenario::json_body(r#"{"error":"nope"}"#).with_status(429)).await;
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     assert_eq!(resp.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
@@ -159,7 +156,7 @@ async fn proxy_a_non_2xx_upstream_passes_the_status_through_untouched() {
 /// 每个响应都带 `x-argus-request-id` —— 对账的唯一抓手。
 #[tokio::test]
 async fn proxy_any_response_carries_the_argus_request_id() {
-    let h = harness(Script::anthropic_stream(), 1).await;
+    let h = harness(Scenario::anthropic_sample()).await;
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     assert!(resp.headers().contains_key("x-argus-request-id"));
 }
@@ -167,7 +164,7 @@ async fn proxy_any_response_carries_the_argus_request_id() {
 /// 客户端的凭据**绝不透传**，Argus 注入自己那份（`docs/06` §6.3–6.4）。
 #[tokio::test]
 async fn proxy_strips_client_credentials_before_reaching_the_provider() {
-    let h = harness(Script::anthropic_stream(), 1).await;
+    let h = harness(Scenario::anthropic_sample()).await;
     let req = Request::post("/provider/mock/v1/messages")
         .header(CONTENT_TYPE, "application/json")
         .header("authorization", "Bearer client-secret-token")
@@ -179,7 +176,7 @@ async fn proxy_strips_client_credentials_before_reaching_the_provider() {
     let resp = h.router.clone().oneshot(req).await.expect("handler 不返回 Err");
     let _ = body_bytes(resp).await;
 
-    let seen = h.provider.last_request();
+    let seen = String::from_utf8_lossy(&h.provider.last_request().head).into_owned();
     assert!(
         !seen.contains("client-secret-token"),
         "客户端凭据泄漏到上游：{seen}"
@@ -196,7 +193,7 @@ async fn proxy_strips_client_credentials_before_reaching_the_provider() {
 /// 路径两条前缀都不匹配 → 404，且 body 是调用方协议的形状。
 #[tokio::test]
 async fn proxy_an_unroutable_path_returns_404_in_the_callers_shape() {
-    let h = harness(Script::anthropic_stream(), 1).await;
+    let h = harness(Scenario::anthropic_sample()).await;
     let resp = post(&h.router, "/v1/messages", REQ).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     let body = body_bytes(resp).await;
@@ -212,7 +209,7 @@ async fn proxy_a_request_over_the_size_limit_returns_413() {
         max_request_bytes: 32,
         ..ProxyConfig::default()
     };
-    let h = harness_with(Script::anthropic_stream(), 1, cfg).await;
+    let h = harness_with(Scenario::anthropic_sample(), cfg).await;
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(h.provider.hits(), 0);
@@ -223,7 +220,7 @@ async fn proxy_a_request_over_the_size_limit_returns_413() {
 /// 一条完整的流被完整地观测下来。
 #[tokio::test]
 async fn proxy_a_streaming_response_produces_a_complete_interaction() {
-    let h = harness(Script::anthropic_stream(), 1).await;
+    let h = harness(Scenario::anthropic_sample()).await;
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     let _ = body_bytes(resp).await;
 
@@ -255,7 +252,7 @@ async fn proxy_a_streaming_response_produces_a_complete_interaction() {
 /// 同一条道理）。收窄只发生在 Content-Type 说明它根本解不了的时候。
 #[tokio::test]
 async fn proxy_a_json_response_keeps_the_semantic_observer() {
-    let h = harness(Script::json(r#"{"id":"resp_1","usage":{}}"#), 1).await;
+    let h = harness(Scenario::json_body(r#"{"id":"resp_1","usage":{}}"#)).await;
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     let _ = body_bytes(resp).await;
 
@@ -270,9 +267,10 @@ async fn proxy_a_json_response_keeps_the_semantic_observer() {
 /// 它在非 JSON 上退化成 `Malformed`，留下的正好只有字节数与形状。
 #[tokio::test]
 async fn proxy_an_html_response_narrows_to_the_generic_observer() {
-    let mut script = Script::json("<html>502 Bad Gateway</html>");
-    script.content_type = "text/html";
-    let h = harness(script.with_status(502), 1).await;
+    let scenario = Scenario::json_body("<html>502 Bad Gateway</html>")
+        .with_content_type("text/html")
+        .with_status(502);
+    let h = harness(scenario).await;
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     assert_eq!(resp.status(), StatusCode::BAD_GATEWAY);
     let _ = body_bytes(resp).await;
@@ -289,15 +287,14 @@ async fn proxy_an_html_response_narrows_to_the_generic_observer() {
 /// 宪法 C10 + C13：旁路满了就丢，**主链路一个字节都不少**，且丢弃可检测。
 #[tokio::test]
 async fn proxy_with_an_overflowing_tee_keeps_forwarding_and_marks_degraded() {
-    let script = Script::flood(200, 512);
-    let expected = script.body();
     let cfg = ProxyConfig {
         // 把两级预算都掐到最小，逼出丢弃
         tee_channel_capacity: 1,
         tee_byte_budget: 256,
         ..ProxyConfig::default()
     };
-    let h = harness_with(script, 1, cfg).await;
+    let h = harness_with(Scenario::flood(200, 512), cfg).await;
+    let expected = h.provider.expected_body();
 
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -328,8 +325,7 @@ async fn proxy_with_an_overflowing_tee_keeps_forwarding_and_marks_degraded() {
 /// 没有能被测试触发的 panic 点，硬造一个就得给 `AnyObserver` 开测试后门）。
 #[tokio::test]
 async fn proxy_with_a_failing_framer_still_returns_the_full_response() {
-    let script = Script::flood(4, 4096);
-    let expected = script.body();
+    let scenario = Scenario::flood(4, 4096);
     let cfg = ProxyConfig {
         observer: ObserverConfig {
             // 单帧上限 16 字节，第一帧就会溢出
@@ -340,7 +336,8 @@ async fn proxy_with_a_failing_framer_still_returns_the_full_response() {
         },
         ..ProxyConfig::default()
     };
-    let h = harness_with(script, 1, cfg).await;
+    let h = harness_with(scenario, cfg).await;
+    let expected = h.provider.expected_body();
 
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     assert_eq!(resp.status(), StatusCode::OK, "旁路挂了主链路不该受影响");
@@ -357,8 +354,7 @@ async fn proxy_with_a_failing_framer_still_returns_the_full_response() {
 /// 客户端中途断开：上游连接被关掉，已收到的部分照常提交（`docs/06` §8.3）。
 #[tokio::test]
 async fn proxy_when_the_client_drops_mid_stream_submits_a_partial_interaction() {
-    let script = Script::anthropic_stream().with_pacing(Duration::from_millis(30));
-    let h = harness(script, 1).await;
+    let h = harness(Scenario::anthropic_sample().with_pacing(Duration::from_millis(30))).await;
 
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -395,7 +391,7 @@ async fn proxy_when_the_client_drops_mid_stream_submits_a_partial_interaction() 
 /// 判据是主链路返回时旁路还没提交 —— 如果主链路等过它，这里一定已经有值。
 #[tokio::test]
 async fn proxy_does_not_wait_for_the_observer_before_answering() {
-    let h = harness(Script::anthropic_stream(), 1).await;
+    let h = harness(Scenario::anthropic_sample()).await;
     let resp = post(&h.router, "/provider/mock/v1/messages", REQ).await;
     let _ = body_bytes(resp).await;
     // 主链路已经把 body 交完了。旁路可能还在跑，也可能刚好跑完 ——

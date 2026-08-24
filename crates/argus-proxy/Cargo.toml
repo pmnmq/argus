@@ -75,6 +75,8 @@ testkit = ["dep:rcgen"]
 [dev-dependencies]
 # test-util 只在测试里用：tokio::time::pause 让超时用例秒级跑完而不是真等 30s
 tokio     = { workspace = true, features = ["test-util"] }
+# 集成测试与 bench 都要用 testkit，这里把自己开着 feature 引一遍
+argus-proxy = { workspace = true, features = ["testkit"] }
 insta     = { workspace = true }
 proptest  = { workspace = true }
 rstest    = { workspace = true }
