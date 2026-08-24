@@ -1,7 +1,7 @@
 # Argus workspace root
 #
-# 依赖清单照抄 docs/14-rust-project-structure.md §7.1，**不要自行调整版本**
-# （F01 spec §5）。各 crate 允许/禁止的依赖见 docs/14 §7.2，由
+# 依赖清单照抄 docs/19-rust-project-structure.md §7.1，**不要自行调整版本**
+# （F01 spec §5）。各 crate 允许/禁止的依赖见 docs/19 §7.2，由
 # ci/check-invariants.sh 强制（宪法 C6）。
 
 [workspace]
@@ -23,7 +23,7 @@ publish      = false
 #
 # 注意：cargo 只有这一张表，`[dependencies]` 与 `[dev-dependencies]` 都通过
 # `workspace = true` 引用它（不存在 `[workspace.dev-dependencies]`）。
-# 因此 docs/14 §7.1 中分开列出的 dev 依赖也合并在此，见文件末尾的 "测试工具" 段。
+# 因此 docs/19 §7.1 中分开列出的 dev 依赖也合并在此，见文件末尾的 "测试工具" 段。
 # ---------------------------------------------------------------------------
 [workspace.dependencies]
 # 内部 crate（依赖方向见宪法 C6）
@@ -134,7 +134,7 @@ dbg_macro = "deny"
 [profile.release]
 opt-level     = 3
 lto           = "thin"
-codegen-units = 4          # 不用 1：编译时间翻倍，收益 < 3%（docs/14 §7.4）
+codegen-units = 4          # 不用 1：编译时间翻倍，收益 < 3%（docs/19 §7.4）
 # ⚠️⚠️ panic = "unwind" 绝不可改为 "abort"。⚠️⚠️
 # abort 会让单个请求的 panic 杀掉整个进程，连带切断数千条正在进行的 SSE 连接。
 # 见 docs/01-architecture.md §9、宪法 C7。ci/check-invariants.sh 会强制此项。

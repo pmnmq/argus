@@ -8,7 +8,7 @@ license.workspace      = true
 repository.workspace   = true
 publish.workspace      = true
 
-# sqlx 只允许出现在这里（docs/14 §5.1 判据 A）。禁止依赖 argus-proxy。
+# sqlx 只允许出现在这里（docs/19 §5.1 判据 A）。禁止依赖 argus-proxy。
 [dependencies]
 argus-core     = { workspace = true }
 argus-protocol = { workspace = true }

@@ -8,7 +8,7 @@ license.workspace      = true
 repository.workspace   = true
 publish.workspace      = true
 
-# ⚠️ 禁止 tokio / hyper / sqlx / axum / reqwest（宪法 C6、docs/14 §7.2）
+# ⚠️ 禁止 tokio / hyper / sqlx / axum / reqwest（宪法 C6、docs/19 §7.2）
 #    "解析层不可能阻塞" 这条性质靠依赖树而不是靠自觉来保证。
 [dependencies]
 argus-core  = { workspace = true }
