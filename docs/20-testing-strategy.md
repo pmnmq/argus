@@ -492,6 +492,8 @@ pub enum Scenario {
     Synthetic { tokens: usize, interval: Duration },
     /// 永不响应（测超时）
     Hang,
+    /// 逐帧指定字节与分片边界
+    Scripted { frames: Vec<Vec<u8>>, status: u16, pacing: Pacing, truncate: bool },
 }
 
 pub enum Pacing {
@@ -505,6 +507,22 @@ pub enum Pacing {
 ```
 
 **`Pacing::Realtime` 很重要**：它能重现真实的 TTFT 与 token 间隔，让 E2E 测试的时序有意义。
+
+**`Scripted` 是给字节级断言留的口子**。上面八个场景描述的都是「provider
+表现出什么行为」，没有一个能表达「这些字节，按这个边界，分这么多次发」——
+而 §5.2 的透明性测试与 `10-streaming.md` §6 的丢弃/`gap_before` 用例要的
+恰恰是后者。缺了它，这类测试只能各自手写一个 HTTP 服务器，公共设施就白设了。
+
+配套地，`MockProvider` 有两种传输，**都不能少**：
+
+| 传输 | 用途 | 为什么不能只留一个 |
+|---|---|---|
+| 明文，手写 HTTP/1.1 字节 | 分片与时序逐字节可控 | 任何 HTTP 库都会替我们重新分片，把要验的东西抹掉 |
+| TLS + ALPN | 验 h2 真的协商上了（宪法 C23） | 手写字节做不出 h2 的帧层；而 ALPN 只在 TLS 上存在 |
+
+它落在 `argus-proxy` 的 `testkit` feature 下（非默认，不进 release）。
+不单开 crate 是因为宪法 C32 把 crate 集合钉死在五个，而一个测试工具箱
+不满足 `19-rust-project-structure.md` §4 的任何一条拆分判据。
 
 ---
 
