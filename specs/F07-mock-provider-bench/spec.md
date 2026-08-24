@@ -74,6 +74,10 @@ ci/gate-m0.sh                                    # 读取上面产出的 JSON �
 ## 5. 实现要点
 
 - `MockProvider` 必须支持 **h2**（否则测不出 `docs/17` §4.2 的连接复用效应，宪法 C23）。
+- **它同时是 F06 那条 h2 验收的承接方**：F06 在 `crates/argus-proxy/tests/mock_provider/`
+  里留了一个手写的明文 HTTP/1.1 mock，够跑透传与取消，但不会 ALPN，所以
+  `resp.version() == HTTP_2` 那条端到端断言在 F06 只验到了 `tls_config` 的
+  ALPN 顺序（F06 §7.2）。本切片的 mock 上 TLS 之后，**必须补上那条端到端断言**。
 - 对照组（直连 Mock）与实验组必须用**同一个客户端进程、同一份负载脚本**，只改 base_url。否则差值不可信。
 - 内存采集读 `/proc/self/status` 的 `VmRSS`，采样间隔 1s，取稳态段的 p50/p99（跳过前 30 秒预热）。
 - CPU 用 `/proc/self/stat` 的 utime+stime 差分，除以墙钟与核数。
@@ -82,7 +86,8 @@ ci/gate-m0.sh                                    # 读取上面产出的 JSON �
 
 ## 6. 任务
 
-- [ ] T1 `tests/support/mock_provider.rs`：axum server + scenario 分发 + h2 支持
+- [ ] T1 `tests/support/mock_provider.rs`：axum server + scenario 分发 + h2 支持（吸收 F06 的明文 mock）
+- [ ] T1b 补 F06 欠的端到端 h2 断言：经 TLS 连到 mock，`resp.version() == HTTP_2`
 - [ ] T2 `Pacing::Realtime` 的时间戳录制与回放
 - [ ] T3 全部 9 种 scenario 实现
 - [ ] T4 `benches/framer.rs` / `parser.rs` / `accumulator.rs`（criterion）
