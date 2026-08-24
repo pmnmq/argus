@@ -13,6 +13,7 @@ pub mod ingress;
 pub mod observer;
 pub mod target;
 pub mod tee;
+pub mod upstream;
 
 /// 编译期常量，用于 F01 验收：证明 crate 真的被编译进依赖图。
 pub const CRATE_NAME: &str = "argus-proxy";
