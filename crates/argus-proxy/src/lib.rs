@@ -14,6 +14,9 @@ pub mod observer;
 pub mod sink;
 pub mod target;
 pub mod tee;
+// 测试与压测的公共设施。非默认 feature，release 构建里根本不存在
+#[cfg(feature = "testkit")]
+pub mod testkit;
 pub mod upstream;
 
 /// 编译期常量，用于 F01 验收：证明 crate 真的被编译进依赖图。

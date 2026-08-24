@@ -29,6 +29,8 @@ tower-http     = { workspace = true }
 rustls         = { workspace = true }
 hyper-rustls   = { workspace = true }
 tokio-rustls   = { workspace = true }
+# 只被 testkit 的自签证书用到（见 [features]）
+rcgen          = { workspace = true, optional = true }
 webpki-roots   = { workspace = true }
 
 serde       = { workspace = true }
@@ -66,6 +68,9 @@ redis = { workspace = true, optional = true }
 [features]
 default = []
 redis   = ["dep:redis"]
+# MockProvider 与压测驱动。**非默认**：它会把 rcgen 拖进依赖树，
+# 而那是一个只在测试里有意义的证书生成库
+testkit = ["dep:rcgen"]
 
 [dev-dependencies]
 # test-util 只在测试里用：tokio::time::pause 让超时用例秒级跑完而不是真等 30s
