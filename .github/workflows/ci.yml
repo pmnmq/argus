@@ -18,7 +18,7 @@ jobs:
   # 快而严的一档：格式 + lint + 架构不变式。绝大多数问题在这里就被拦下。
   lint:
     name: fmt / clippy / invariants
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
   # 依赖卫生：许可证、已知漏洞、来源、禁用包
   deny:
     name: cargo-deny
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -55,7 +55,7 @@ jobs:
 
   test:
     name: test
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2604
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
