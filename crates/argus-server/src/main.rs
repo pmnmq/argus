@@ -29,7 +29,9 @@ use argus_proxy::{
     target::{CheckedResolver, SystemResolver, TargetPolicy, TargetPolicyConfig},
     upstream::UpstreamClient,
 };
+use axum::routing::get;
 use http::HeaderName;
+use metrics_exporter_prometheus::PrometheusBuilder;
 
 fn main() -> anyhow::Result<()> {
     if env::args().nth(1).as_deref() == Some("serve") {
@@ -100,7 +102,29 @@ async fn serve() -> anyhow::Result<()> {
     tracing::info!(%listen, %upstream, %profile, observe = observe.as_str(), "argus 已启动");
     tracing::info!("试试： curl -X POST http://{listen}/provider/{profile}/v1/messages -d '{{}}'");
 
-    axum::serve(listener, router(state))
+    let mut app = router(state);
+    if env::var("ARGUS_BENCH_METRICS").as_deref() == Ok("1") {
+        let metrics = PrometheusBuilder::new().install_recorder().context("初始化压测指标失败")?;
+        metrics::counter!("argus_dns_cache_hits_total").increment(0);
+        metrics::counter!("argus_dns_cache_misses_total").increment(0);
+        app = app.route(
+            "/metrics",
+            get(move || {
+                let body = metrics.render();
+                async move {
+                    (
+                        [(
+                            http::header::CONTENT_TYPE,
+                            "text/plain; version=0.0.4; charset=utf-8",
+                        )],
+                        body,
+                    )
+                }
+            }),
+        );
+    }
+
+    axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(shutdown))
         .await
         .context("服务退出")

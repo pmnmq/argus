@@ -22,7 +22,7 @@ use argus_protocol::{
     AnyObserver, ObserverSink, ProtocolObserver,
     accumulator::{Accumulator, AccumulatorConfig, RequestMeta},
     framer::{Framer, FramerConfig, SseFramer},
-    interaction::{Outcome, StreamStats},
+    interaction::Outcome,
     ir::ObservedEvent,
     observer::EventSink,
     sink::InteractionSink,
@@ -176,6 +176,12 @@ impl Observer {
 
     /// 上游读完了：补上最后一段丢弃，再冲掉 framer 与 parser 里滞留的帧。
     fn wrap_up(&mut self) -> Outcome {
+        let stats = self.rx.report().stats();
+        metrics::counter!("argus_bytes_forwarded_total", "direction" => "response")
+            .increment(stats.bytes_forwarded);
+        metrics::counter!("argus_tee_dropped_bytes_total").increment(stats.bytes_dropped);
+        metrics::counter!("argus_tee_streams_total").increment(1);
+
         if !self.dead {
             let at = self.at_micros();
             // `gap_before` 搭的是"下一个成功发送"的顺风车，最后一段丢弃没车可搭。
@@ -225,7 +231,7 @@ impl Observer {
             TeeEnd::Eof => Outcome::Completed,
             TeeEnd::ClientAborted => Outcome::ClientAborted {
                 at_seq: self.last_seq,
-                bytes_forwarded: self.rx.report().stats().bytes_forwarded,
+                bytes_forwarded: stats.bytes_forwarded,
             },
             TeeEnd::UpstreamError(kind) => Outcome::UpstreamError { kind },
             TeeEnd::Cancelled(reason) => Outcome::Cancelled { reason },
@@ -247,7 +253,10 @@ impl Observer {
         // 「上游在想」和「我们在算」需要主链路侧的埋点，那是 F15 的活
         interaction.timings.proxy_overhead_micros = facts.queued_micros;
 
-        record_stats(&interaction.stats);
+        if interaction.stats.parse_failures > 0 {
+            metrics::counter!("argus_parse_failures_total")
+                .increment(u64::from(interaction.stats.parse_failures));
+        }
         if let Err(full) = sink.try_submit(interaction) {
             // 满了就丢，绝不阻塞（宪法 C5）。降级策略是 F20 的活
             metrics::counter!("argus_sink_dropped_total").increment(1);
@@ -275,14 +284,4 @@ impl EventSink for AccSink<'_> {
 
 fn micros_since(start: Instant) -> u32 {
     u32::try_from(start.elapsed().as_micros()).unwrap_or(u32::MAX)
-}
-
-/// 指标只发**计数**，不发内容（宪法 C27）。接线的其余部分是 F15 的活。
-fn record_stats(stats: &StreamStats) {
-    if stats.dropped_bytes > 0 {
-        metrics::counter!("argus_tee_dropped_bytes_total").increment(stats.dropped_bytes);
-    }
-    if stats.parse_failures > 0 {
-        metrics::counter!("argus_parse_failures_total").increment(u64::from(stats.parse_failures));
-    }
 }

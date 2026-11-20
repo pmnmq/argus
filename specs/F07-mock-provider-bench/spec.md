@@ -91,10 +91,13 @@ pub enum Pacing { Realtime, AsFastAsPossible, Fixed(Duration) }
 
 ```bash
 # 压测入口
-ci/bench-e2e.sh --streams 10000 --observe full  --duration 300s
+ci/bench-e2e.sh --streams 10000 --observe full  --duration 300s --dns-rounds 10
 ci/bench-e2e.sh --streams 10000 --observe off   --duration 300s
 ci/gate-m0.sh                                    # 读取上面产出的 JSON 并判定
 ```
+
+正式验收时，`ARGUS_BENCH_LOADGEN` 指向在另一台机器执行 `loadgen` 的包装命令。
+包装命令接收 `loadgen` 的原有参数，负责把传入的回环 URL 转发给远程客户端。
 
 ## 5. 实现要点
 
@@ -126,9 +129,10 @@ ci/gate-m0.sh                                    # 读取上面产出的 JSON �
   「HTTP 请求什么时候完成」，而 R3 要的是 **TTFT**。对一条 SSE 流，前者约
   等于流的总长度，跟代理开销几乎无关 —— 用错指标，压测再漂亮也是白测。
   自己写还顺带避开了 `clippy.toml` 里禁用的 `HttpConnector`。
-- **资源采样用 `ps` 而不是 `/proc/self/status`**：后者只有 Linux 有，而这套
-  脚本要能在开发机上先跑通再上门禁机器。代价是 CPU 只拿得到累计 `TIME`，
-  粒度不足以支撑 G4 的 30% 判定（见 §7.2）。
+- Linux 逐秒采集进程 RSS 和 `utime` / `stime`，用稳态 RSS p99 和平均 CPU 用量判定 G3/G4。
+  非 Linux 环境可用 `ps` 试采 RSS，CPU 项保留未判定。
+- 压测启动时打开指标端点，按完成流聚合 `TeeStats` 字节计数。DNS 探测使用同一主机名，
+  每轮启动全新 Argus 进程，并核对两次请求分别触发缓存未命中和命中。
 
 ## 6. 任务
 
@@ -208,7 +212,7 @@ ci/gate-m0.sh                                    # 读取上面产出的 JSON �
 | `kern.ipc.somaxconn` = 128 | 10k 的连接建立速率会持续超过 backlog，测出来的是 accept 队列的行为 |
 | 门禁条件是 4C8G Linux | 在 8C24G arm64 上「测过了」不能替代 —— 核数、内存、内核 TCP 栈全不一样 |
 
-G4 与 G7 缺的不是机器而是仪表：
+原基线的 G4 与 G7 缺少可判定的采样：
 
 - **G4** 需要按秒采样 utime/stime。当前只有 `ps` 的累计 `TIME`，粒度不足以
   支撑 30% 的判定。给一个不可信的比值比不给更糟（宪法 C16）。
@@ -244,7 +248,7 @@ G-M0 除原有条件外，**必须**增加：
 | **在 4C8G Linux 上跑 10k 并发、渲染 G1–G3 的判定** | F07 收尾（需要门禁机器）或 F28 R8 |
 | **压测客户端与被测进程分机部署** | 同上 |
 | **按秒采样 utime/stime，让 G4 可判** | 同上，采样点加在 `ci/bench-e2e.sh` |
-| `tee_dropped_bytes` 等指标导出（G7 的前提） | F15 |
+| G7 所需的最小字节计数导出 | F07 收尾。完整运维指标接线仍由 F15 承接 |
 | DNS 命中/未命中分别测（需要 mock 挂主机名） | F07 收尾 |
 | `Pacing::Realtime` 的真实录制回放（现在只有机制，没有语料） | F10 R6 |
 | `ObserveMode` 何时自动降级（本切片只做了机制） | F20 |

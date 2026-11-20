@@ -11,6 +11,8 @@
 # 用法：
 #   ci/bench-e2e.sh --streams 100 --observe full --duration 30
 #   ci/bench-e2e.sh --streams 100 --observe off  --duration 30
+#   --dns-rounds 10 在 full 模式另外采集 DNS 冷/热缓存数据。
+#   ARGUS_BENCH_LOADGEN 可指定跨主机 loadgen 包装命令，负责转发传入的回环 URL。
 #
 # 产物：bench/results/<observe>-<streams>.json
 set -euo pipefail
@@ -22,6 +24,7 @@ DURATION=30
 OBSERVE=full
 TOKENS=200
 INTERVAL_MS=5
+DNS_ROUNDS=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -30,6 +33,7 @@ while [ $# -gt 0 ]; do
     --observe)  OBSERVE="$2"; shift 2 ;;
     --tokens)   TOKENS="$2"; shift 2 ;;
     --interval-ms) INTERVAL_MS="$2"; shift 2 ;;
+    --dns-rounds) DNS_ROUNDS="$2"; shift 2 ;;
     *) echo "未知参数：$1" >&2; exit 2 ;;
   esac
 done
@@ -38,6 +42,15 @@ case "$OBSERVE" in
   full|off) ;;
   *) echo "--observe 只能是 full 或 off" >&2; exit 2 ;;
 esac
+DURATION=${DURATION%s}
+if [[ ! "$DURATION" =~ ^[1-9][0-9]*$ || ! "$DNS_ROUNDS" =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "--duration 必须是正整数秒，--dns-rounds 必须是非负整数" >&2
+  exit 2
+fi
+if [ "$OBSERVE" = off ] && [ "$DNS_ROUNDS" -ne 0 ]; then
+  echo "DNS 冷/热探测使用 --observe full" >&2
+  exit 2
+fi
 
 OUT_DIR="bench/results"
 mkdir -p "$OUT_DIR"
@@ -48,27 +61,34 @@ say() { printf '\033[1m==>\033[0m %s\n' "$*" >&2; }
 # release 构建：debug 下的数字没有参考价值，且会让对照组与实验组的
 # 相对开销失真（Argus 侧代码多，受 -O0 影响更大）
 say "构建（release）"
-cargo build --release -p argus-proxy --features testkit \
+cargo build --locked --release -p argus-proxy --features testkit \
   --example mock-provider --example loadgen >&2
-cargo build --release -p argus-server >&2
+cargo build --locked --release -p argus-server >&2
 
 BIN_MOCK=target/release/examples/mock-provider
-BIN_LOAD=target/release/examples/loadgen
+BIN_LOAD=${ARGUS_BENCH_LOADGEN:-target/release/examples/loadgen}
 BIN_ARGUS=target/release/argus
+METRICS=ci/bench-metrics.py
 
-PIDS=()
+TMP=$(mktemp -d)
+MOCK_PID=
+ARGUS_PID=
+SAMPLER_PID=
 cleanup() {
-  for pid in "${PIDS[@]:-}"; do
+  for pid in "$SAMPLER_PID" "$ARGUS_PID" "$MOCK_PID"; do
+    [ -n "$pid" ] || continue
     kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
   done
+  rm -rf -- "$TMP"
 }
 trap cleanup EXIT
 
 # ── Mock Provider ───────────────────────────────────────────────────
 say "起 mock provider（${TOKENS} tokens，间隔 ${INTERVAL_MS}ms）"
-MOCK_URL_FILE=$(mktemp)
+MOCK_URL_FILE=$TMP/mock-url
 "$BIN_MOCK" --tokens "$TOKENS" --interval-ms "$INTERVAL_MS" > "$MOCK_URL_FILE" &
-PIDS+=($!)
+MOCK_PID=$!
 
 for _ in $(seq 1 100); do
   MOCK_URL=$(head -n1 "$MOCK_URL_FILE" 2>/dev/null || true)
@@ -89,46 +109,51 @@ ARGUS_PORT=$(( 18000 + RANDOM % 2000 ))
 # ARGUS_PROFILE 必须与 loadgen 请求里的 /provider/<name>/ 对上，
 # 否则每一发都是 404 —— 而 404 是「极快的响应」，会让实验组的分位数
 # 比对照组还好看
-ARGUS_ALLOW_LOOPBACK=1 \
-ARGUS_UPSTREAM="$MOCK_URL" \
-ARGUS_OBSERVE="$OBSERVE" \
-ARGUS_PROFILE=mock \
-ARGUS_LISTEN="127.0.0.1:${ARGUS_PORT}" \
-  "$BIN_ARGUS" serve >/dev/null 2>&1 &
-ARGUS_PID=$!
-PIDS+=("$ARGUS_PID")
+start_argus() {
+  ARGUS_ALLOW_LOOPBACK=1 \
+  ARGUS_UPSTREAM="$1" \
+  ARGUS_OBSERVE="$OBSERVE" \
+  ARGUS_BENCH_METRICS=1 \
+  ARGUS_PROFILE=mock \
+  ARGUS_LISTEN="127.0.0.1:${ARGUS_PORT}" \
+  RUST_LOG=warn \
+    "$BIN_ARGUS" serve >"$TMP/argus.log" 2>&1 &
+  ARGUS_PID=$!
 
-for _ in $(seq 1 100); do
-  if curl -sf "http://127.0.0.1:${ARGUS_PORT}/healthz" >/dev/null 2>&1; then break; fi
-  sleep 0.1
-done
-curl -sf "http://127.0.0.1:${ARGUS_PORT}/healthz" >/dev/null 2>&1 \
-  || { echo "Argus 没起来" >&2; exit 1; }
-
-# 资源采样跟着实验组一起跑。用 ps 而不是 /proc/self/status：后者只有
-# Linux 有，而这套脚本要能在开发机上先跑通再上门禁机器
-say "实验组：客户端 → Argus → mock"
-SAMPLES=$(mktemp)
-(
-  while kill -0 "$ARGUS_PID" 2>/dev/null; do
-    ps -o rss=,time= -p "$ARGUS_PID" 2>/dev/null >> "$SAMPLES" || true
-    sleep 1
+  for _ in $(seq 1 100); do
+    if kill -0 "$ARGUS_PID" 2>/dev/null \
+      && curl -sf "http://127.0.0.1:${ARGUS_PORT}/metrics" >/dev/null; then
+      return
+    fi
+    sleep 0.1
   done
-) &
-PIDS+=($!)
+  cat "$TMP/argus.log" >&2
+  echo "Argus 或指标端点启动失败" >&2
+  exit 1
+}
+start_argus "$MOCK_URL"
+
+say "实验组：客户端 → Argus → mock"
+SAMPLES=$TMP/resources.jsonl
+python3 "$METRICS" sample "$ARGUS_PID" > "$SAMPLES" &
+SAMPLER_PID=$!
 
 EXPERIMENT=$("$BIN_LOAD" --url "http://127.0.0.1:${ARGUS_PORT}/provider/mock/v1/messages" \
   --streams "$STREAMS" --duration-s "$DURATION" --label experiment)
+kill "$SAMPLER_PID" 2>/dev/null || true
+wait "$SAMPLER_PID" 2>/dev/null || true
+SAMPLER_PID=
 
-# RSS 取稳态：跳过前 25% 的样本（预热），再取最大值
-RSS_KB=$(awk '{print $1}' "$SAMPLES" | sort -n | awk '
-  { v[NR] = $1 }
-  END { if (NR == 0) { print 0 } else { print v[NR] } }')
+WARMUP=30
+[ "$DURATION" -ge 60 ] || WARMUP=$((DURATION / 4))
+RESOURCES=$(python3 "$METRICS" summarize "$SAMPLES" "$WARMUP" "$DURATION")
 
 # ── 汇总 ────────────────────────────────────────────────────────────
 UNAME=$(uname -srm)
 CPUS=$( (nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null) || echo 0)
 RUSTC=$(rustc --version)
+EXTERNAL_LOADGEN=0
+[ -z "${ARGUS_BENCH_LOADGEN:-}" ] || EXTERNAL_LOADGEN=1
 
 # 一致性闸门：两组跑的必须是同一件事。完成数差一个数量级，说明有一侧
 # 根本没在做该做的事（最常见的是实验组全是 404），这时产出的 JSON 是
@@ -158,11 +183,31 @@ if [ $(( EXP_N * 10 )) -lt "$CONTROL_N" ] || [ $(( CONTROL_N * 10 )) -lt "$EXP_N
   exit 1
 fi
 
-cat > "$OUT" <<JSON
+TEE=null
+if [ "$OBSERVE" = full ]; then
+  TEE=$(python3 "$METRICS" tee "$ARGUS_PORT" "$EXP_N")
+fi
+
+DNS=null
+if [ "$DNS_ROUNDS" -gt 0 ]; then
+  say "DNS 冷/热缓存探测（${DNS_ROUNDS} 轮）"
+  DNS_UPSTREAM=${MOCK_URL/127.0.0.1/localhost}
+  for _ in $(seq 1 "$DNS_ROUNDS"); do
+    kill "$ARGUS_PID"
+    wait "$ARGUS_PID" 2>/dev/null || true
+    ARGUS_PID=
+    start_argus "$DNS_UPSTREAM"
+    python3 "$METRICS" dns-pair "$ARGUS_PORT" >> "$TMP/dns.jsonl"
+  done
+  DNS=$(python3 "$METRICS" dns-summary "$TMP/dns.jsonl")
+fi
+
+cat > "$TMP/result.json" <<JSON
 {
   "observe": "${OBSERVE}",
   "streams": ${STREAMS},
   "duration_s": ${DURATION},
+  "external_loadgen": ${EXTERNAL_LOADGEN},
   "mock": { "tokens": ${TOKENS}, "interval_ms": ${INTERVAL_MS} },
   "env": {
     "uname": "${UNAME}",
@@ -170,11 +215,14 @@ cat > "$OUT" <<JSON
     "rustc": "${RUSTC}",
     "date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   },
-  "argus_rss_kb_peak": ${RSS_KB},
+  "resources": ${RESOURCES},
+  "tee": ${TEE},
+  "dns_ttft": ${DNS},
   "control": ${CONTROL},
   "experiment": ${EXPERIMENT}
 }
 JSON
+mv "$TMP/result.json" "$OUT"
 
 say "写出 $OUT"
 cat "$OUT"
