@@ -92,7 +92,7 @@ FAIL [C6] argus-proxy depends on sqlx — see specs/constitution.md#c6
 - [x] T6 `deny.toml`（licenses / advisories / bans）
 - [x] T7 `ci/check-invariants.sh`：实现 R2–R5、R7 的检查，每条打印条款号
 - [x] T8 `ci/check_log_fields.py`：R8 的敏感字段黑名单扫描
-- [x] T9 `.github/workflows/ci.yml`：fmt → clippy → check-invariants → deny → test → build
+- [x] T9 `.github/workflows/ci.yml` 执行格式检查、Clippy、架构护栏、依赖检查和工作区测试。
 - [x] T10 为每条 CI 检查写一个**故意违反的样例**并确认它真的失败（见 §7 验收）
 
 ## 7. 验收

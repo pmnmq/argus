@@ -119,8 +119,8 @@ pub enum JsonShape { Object, Array, Scalar, Malformed }
 ## 7. 验收
 
 ```bash
-just test -p argus-proxy observer
-just test -p argus-protocol generic
+cargo test -p argus-proxy --all-features --locked observer
+cargo test -p argus-protocol --all-features --locked generic
 ```
 
 - [x] 首个命中生效（后面还有更"精确"的规则也不生效）

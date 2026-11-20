@@ -132,7 +132,7 @@ pub async fn check_target(uri: &Uri, p: &TargetPolicy, r: &CheckedResolver)
 ## 7. 验收
 
 ```bash
-just test -p argus-proxy target
+cargo test -p argus-proxy --all-features --locked target
 ```
 
 - [x] `docs/20` §5.4 矩阵全绿。redirect 那行已简化为「3xx 原样透传」，

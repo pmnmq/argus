@@ -156,10 +156,10 @@ pub enum CredentialMode {
 ## 7. 验收
 
 ```bash
-just test -p argus-core
-just test -p argus-protocol        # F03 的 97 个测试必须一个不少
-just invariants
-just guards
+cargo test -p argus-core --all-features --locked
+cargo test -p argus-protocol --all-features --locked  # F03 的 97 个测试必须一个不少
+./ci/check-invariants.sh
+./ci/verify-guards.sh
 ```
 
 判据要**排除注释**——「这里没有 X，因为 Y」这类说明是有价值的，

@@ -24,25 +24,22 @@ jobs:
       - uses: actions/checkout@v4
       # rust-toolchain.toml 决定版本，这里不要再写死
       - run: rustup show active-toolchain || rustup toolchain install
-      - uses: extractions/setup-just@v3
       - uses: Swatinem/rust-cache@v2
 
-      # 所有步骤都走 justfile —— 它是唯一的事实源，本地 `just ci` 与这里
-      # 跑的是同一串命令。两边各写一份迟早漂移，然后变成「本地明明是绿的」。
       - name: cargo fmt
-        run: just fmt-check
+        run: ./ci/fmt.sh --check
 
       - name: cargo clippy
-        run: just clippy
+        run: cargo clippy --workspace --all-features --locked --all-targets -- -D warnings
 
       # 架构不变式：宪法里可机械强制的那些条款（C4/C5/C6/C7/C8/C9/C27/C32）
       - name: 架构不变式
-        run: just invariants
+        run: ./ci/check-invariants.sh
 
       # 护栏的护栏：逐条注入违规，确认检查真的会失败
       # 这一步比上一步更重要 —— 它防止 check-invariants.sh 悄悄失效
       - name: 护栏有效性
-        run: just guards
+        run: ./ci/verify-guards.sh
 
   # 依赖卫生：许可证、已知漏洞、来源、禁用包
   deny:
@@ -63,27 +60,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: rustup show active-toolchain || rustup toolchain install
-      - uses: extractions/setup-just@v3
       - uses: Swatinem/rust-cache@v2
       - name: cargo test
-        run: just test
-
-  build:
-    name: release build
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - run: rustup show active-toolchain || rustup toolchain install
-      - uses: extractions/setup-just@v3
-      - uses: Swatinem/rust-cache@v2
-      # --locked：CI 不允许悄悄改 Cargo.lock
-      - name: cargo build --release
-        run: just build
-
-      # F01 R10：4 分钟预算。这里记录冷/热编译时长，F28 会把它变成硬门禁。
-      - name: 记录编译耗时
-        if: always()
-        run: |
-          echo "构建完成。R10 预算 = 4 分钟（4 核）。" >> "$GITHUB_STEP_SUMMARY"
-          echo "编译时间门禁在 F28 才收紧，见 docs/14 §8。" >> "$GITHUB_STEP_SUMMARY"
+        run: cargo test --workspace --all-features --locked

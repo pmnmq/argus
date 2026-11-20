@@ -531,23 +531,22 @@ doc-valid-idents = ["OpenAI", "PostgreSQL", "UUIDv7", "OAuth2", "SigV4", ".."]
 import 合并只是「用了 nightly 就应用」，不是强制。要强制就得让 CI 也装
 nightly，那会把 CI 的稳定性绑在一个每天变的工具链上，不划算。
 
-### 9.5 命令入口：`justfile`
+### 9.5 开发与 CI 命令
 
-日常命令都走 `just`，它是**唯一的事实源** —— CI 调的就是同一批 recipe：
+在工作区根目录执行与 `.github/workflows/ci.yml` 对应的检查。依赖检查需要安装 `cargo-deny`。
 
+```bash
+./ci/fmt.sh --check
+cargo clippy --workspace --all-features --locked --all-targets -- -D warnings
+./ci/check-invariants.sh
+./ci/verify-guards.sh
+cargo deny --all-features check
+cargo test --workspace --all-features --locked
 ```
-just            列出全部命令
-just check      日常：fmt + clippy + test + 不变式（约 5 秒）
-just ci         提交前：CI 会跑的一切（约 1 分钟）
-just test -p argus-protocol framer
-```
 
-不让 CI 与本地各写一份命令，是因为那必然漂移，然后变成「本地明明是绿的」。
-
-一个细节：`cargo` 里 `--workspace` 会**静默盖掉** `-p`，`just test -p argus-core`
-会变成跑全量而没有任何提示。所以 recipe 里用条件表达式 —— 无参数时显式加
-`--workspace`，有参数时不加（不能干脆不写：虚拟根默认等于全部成员只是当前的
-巧合，将来谁加一行 `default-members`，无参数那次就会悄悄收窄）。
+用 `./ci/fmt.sh` 写回格式。按 crate 跑测试时使用 `-p`，例如
+`cargo test -p argus-protocol --all-features --locked framer`。
+用 `cargo run --locked --bin argus` 运行二进制自检。
 
 ---
 

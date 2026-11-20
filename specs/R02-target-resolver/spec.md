@@ -118,7 +118,7 @@ pub fn detect_raw_form(rest: &str) -> Result<(RawForm, Scheme, &str), ProxyError
 ## 7. 验收
 
 ```bash
-just test -p argus-proxy resolver
+cargo test -p argus-proxy --all-features --locked resolver
 ```
 
 - [x] `docs/20-testing-strategy.md` §5.1 的矩阵全绿（9 类逐格实现）
