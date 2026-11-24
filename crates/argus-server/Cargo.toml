@@ -31,7 +31,6 @@ tower-http = { workspace = true }
 
 clap            = { workspace = true }
 figment         = { workspace = true }
-humantime-serde = { workspace = true }
 serde           = { workspace = true }
 serde_json      = { workspace = true }
 
@@ -43,7 +42,6 @@ metrics-exporter-prometheus = { workspace = true }
 
 anyhow       = { workspace = true }
 uuid         = { workspace = true }
-chrono       = { workspace = true }
 rand         = { workspace = true }
 rlimit       = { workspace = true }
 memory-stats = { workspace = true }

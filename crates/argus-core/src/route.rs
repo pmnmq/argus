@@ -18,17 +18,17 @@ use serde::{Deserialize, Serialize};
 #[derive(Copy, Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 pub struct Timeouts {
     /// TCP + TLS 建连
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "jiff::fmt::serde::unsigned_duration::friendly::compact::required")]
     pub connect: Duration,
     /// 发出请求到收到 response header。推理模型首 token 可能超过 30 秒，
     /// 设短了会大量误触发 S1 重试（而 S1 重试有重复计费风险）。
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "jiff::fmt::serde::unsigned_duration::friendly::compact::required")]
     pub headers: Duration,
     /// 两个 body frame 之间的最大间隔。这一条才是「流卡住了」的判据。
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "jiff::fmt::serde::unsigned_duration::friendly::compact::required")]
     pub idle_frame: Duration,
     /// 整个请求的硬上限
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "jiff::fmt::serde::unsigned_duration::friendly::compact::required")]
     pub total: Duration,
 }
 
@@ -46,9 +46,9 @@ impl Default for Timeouts {
 /// 指数退避参数。
 #[derive(Copy, Clone, PartialEq, Debug, Serialize, Deserialize)]
 pub struct Backoff {
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "jiff::fmt::serde::unsigned_duration::friendly::compact::required")]
     pub initial: Duration,
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "jiff::fmt::serde::unsigned_duration::friendly::compact::required")]
     pub max: Duration,
     pub multiplier: f32,
     /// 抖动比例（0.0–1.0）。没有抖动，同时失败的请求会同步重试，
@@ -76,7 +76,7 @@ pub struct RetryPolicy {
     /// 通常只是浪费预算，应该换一个。
     pub max_attempts_per_provider: u8,
     /// 总的 fallback 时间预算，硬性。超过就直接失败，让客户端自己决定。
-    #[serde(with = "humantime_serde")]
+    #[serde(with = "jiff::fmt::serde::unsigned_duration::friendly::compact::required")]
     pub budget: Duration,
     /// S1（请求已发出但没收到 header）是否重试。
     ///
@@ -141,11 +141,20 @@ mod tests {
 
     /// 配置文件里写的是 "3s"，不是 `{ secs: 3, nanos: 0 }`。
     #[test]
-    fn deserialize_timeouts_given_humantime_strings_parses_durations() {
+    fn deserialize_timeouts_given_human_readable_strings_parses_durations() {
         let t: Timeouts = serde_json::from_str(
             r#"{"connect":"3s","headers":"1m","idle_frame":"2m","total":"15m"}"#,
         )
-        .expect("humantime 格式");
+        .expect("可读时长字符串格式");
         assert_eq!(t, Timeouts::default());
+        assert_eq!(
+            serde_json::to_value(t).expect("时长可序列化"),
+            serde_json::json!({
+                "connect": "3s",
+                "headers": "1m",
+                "idle_frame": "2m",
+                "total": "15m",
+            })
+        );
     }
 }

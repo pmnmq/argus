@@ -267,7 +267,7 @@ arc-swap     = "1"
 dashmap      = "6"
 parking_lot  = "0.12"
 # 存储
-sqlx         = { version = "0.8", default-features = false, features = ["runtime-tokio","tls-rustls","postgres","uuid","chrono","json","macros","migrate"] }
+sqlx         = { version = "0.8", default-features = false, features = ["runtime-tokio","tls-rustls","postgres","uuid","json","macros","migrate"] }
 zstd         = "0.13"
 # 加密
 sha2         = "0.10"
@@ -290,10 +290,9 @@ metrics-exporter-prometheus = "0.16"
 # 配置与 CLI
 figment      = { version = "0.10", features = ["toml","env"] }
 clap         = { version = "4", features = ["derive","env"] }
-humantime-serde = "1"
 # 杂项
 uuid         = { version = "1", features = ["v4","v7","serde"] }
-chrono       = { version = "0.4", features = ["serde"] }
+jiff         = { version = "1", features = ["serde"] }
 thiserror    = "2"
 anyhow       = "1"
 url          = "2"
@@ -355,7 +354,7 @@ inherits = "release"
 
 | crate | 允许 | **禁止** |
 |-------|------|---------|
-| `argus-core` | serde, bytes, http, arc-swap, thiserror, uuid, chrono, compact_str, smallvec, zeroize, humantime-serde | **任何内部 crate**（它是依赖图的根，反向依赖会造成循环）；tokio（除 `sync` 的类型定义）；sqlx；hyper |
+| `argus-core` | serde, bytes, http, arc-swap, thiserror, uuid, jiff, compact_str, smallvec, zeroize | **任何内部 crate**（它是依赖图的根，反向依赖会造成循环）；tokio（除 `sync` 的类型定义）；sqlx；hyper |
 | `argus-protocol` | argus-core, serde, serde_json, bytes, memchr, compact_str, smallvec, thiserror | **tokio, sqlx, hyper, axum, reqwest, std::fs, std::net** |
 | `argus-proxy` | argus-core, argus-protocol, tokio, hyper, axum, tower, regex, governor, moka | **sqlx, argus-storage** |
 | `argus-storage` | argus-core, argus-protocol, sqlx, tokio, zstd | argus-proxy |
@@ -384,6 +383,7 @@ CI 检查（见 `20-testing-strategy.md` §9）：
 | `memchr` | 手写扫描 | SIMD 加速的子串搜索，SseFramer 的热路径 |
 | `metrics` | `opentelemetry-metrics` | 更轻；OTel 保持可选 |
 | `figment` | `config` | 分层来源与类型化提取更好用 |
+| `jiff` | `chrono` / `humantime-serde` | `chrono` 与 `humantime` 已标记为不再维护（RUSTSEC-2026-0543 等）；`jiff` 同时覆盖时间类型与可读时长 Serde |
 | `insta` | 手写断言 | golden snapshot 的标准工具，`cargo insta review` 体验好 |
 | `serde_json` 的 `raw_value` | — | `Box<RawValue>` 存 tool arguments 而不构造 DOM |
 

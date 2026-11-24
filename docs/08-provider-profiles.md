@@ -69,8 +69,8 @@ pub struct ProviderProfile {
     pub security_policy: Option<SecurityPolicyId>,
 
     pub workspace_id: WorkspaceId,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: jiff::Timestamp,
+    pub updated_at: jiff::Timestamp,
 }
 
 #[non_exhaustive]

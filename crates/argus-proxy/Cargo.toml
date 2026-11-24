@@ -56,7 +56,6 @@ moka         = { workspace = true }
 tracing      = { workspace = true }
 metrics      = { workspace = true }
 uuid         = { workspace = true }
-chrono       = { workspace = true }
 thiserror    = { workspace = true }
 url          = { workspace = true }
 memory-stats = { workspace = true }

@@ -43,12 +43,12 @@ pub struct PartitionManager { pool: PgPool, cfg: RetentionConfig }
 impl PartitionManager {
     /// 每小时运行
     pub async fn maintain(&self) -> Result<MaintenanceReport, PartitionError>;
-    pub async fn ensure_exists(&self, table: &str, day: NaiveDate) -> Result<(), PartitionError>;  // R7
+    pub async fn ensure_exists(&self, table: &str, day: jiff::civil::Date) -> Result<(), PartitionError>;  // R7
     pub async fn list(&self, table: &str) -> Result<Vec<PartitionInfo>, PartitionError>;
 }
 
 pub struct PartitionInfo {
-    pub name: String, pub lower: NaiveDate, pub upper: NaiveDate,
+    pub name: String, pub lower: jiff::civil::Date, pub upper: jiff::civil::Date,
     pub row_estimate: i64, pub size_bytes: i64,
 }
 

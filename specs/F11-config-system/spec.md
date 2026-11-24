@@ -88,7 +88,7 @@ impl Profile { pub fn defaults(self) -> figment::Figment; }
 
 - 用 `figment` 做分层合并；`deny_unknown_fields` 提供 R7，但需要额外做"最相近合法键"的建议（用 `strsim::jaro_winkler`）。
 - profile 实现为一个返回 `Figment` 的函数，插在"默认值"与"文件"之间。
-- `humantime_serde` 处理时长，自定义 `ByteSize` 处理 `"8MiB"`。
+- `jiff::fmt::serde::unsigned_duration` 处理可读时长（如 `"30s"`），自定义 `ByteSize` 处理 `"8MiB"`。
 - **R11 的脱敏必须是白名单式**：只打印已知安全的字段，而不是黑名单过滤——后者一定会漏。
 
 ## 6. 任务

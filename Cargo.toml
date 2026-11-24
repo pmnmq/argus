@@ -63,7 +63,7 @@ arc-swap     = "1"
 dashmap      = "6"
 parking_lot  = "0.12"
 # 存储
-sqlx         = { version = "0.8", default-features = false, features = ["runtime-tokio","tls-rustls","postgres","uuid","chrono","json","macros","migrate"] }
+sqlx         = { version = "0.8", default-features = false, features = ["runtime-tokio","tls-rustls","postgres","uuid","json","macros","migrate"] }
 zstd         = "0.13"
 # 加密
 sha2         = "0.10"
@@ -86,10 +86,9 @@ metrics-exporter-prometheus = "0.16"
 # 配置与 CLI
 figment      = { version = "0.10", features = ["toml","env"] }
 clap         = { version = "4", features = ["derive","env"] }
-humantime-serde = "1"
 # 杂项
 uuid         = { version = "1", features = ["v4","v7","serde"] }
-chrono       = { version = "0.4", features = ["serde"] }
+jiff         = { version = "1", features = ["serde"] }
 thiserror    = "2"
 anyhow       = "1"
 url          = "2"

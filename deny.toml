@@ -52,6 +52,7 @@ deny = [
   { name = "openssl",     reason = "统一用 rustls，见 docs/14 §7.3" },
   { name = "openssl-sys", reason = "同上" },
   { name = "reqwest",     reason = "会自动解压/重定向，破坏透明性，见 docs/02 §13-A（宪法 C1）" },
+  { name = "chrono",      reason = "已标记为不再维护（RUSTSEC-2026-0543），统一用 jiff，见 docs/19 §7.3" },
 ]
 
 [sources]

@@ -17,14 +17,13 @@ http        = { workspace = true }
 arc-swap    = { workspace = true }
 thiserror   = { workspace = true }
 uuid        = { workspace = true }
-chrono      = { workspace = true }
 compact_str = { workspace = true }
 smallvec    = { workspace = true }
 # ResolvedCredential 的 Drop 清零。手写 `for b in buf { *b = 0 }` 会被优化掉，
 # 这正是 zeroize 存在的理由。
 zeroize     = { workspace = true }
-# Timeouts / RetryPolicy 要能从 TOML 里读 "3s" / "10s" 这样的写法
-humantime-serde = { workspace = true }
+# Timeouts / RetryPolicy 要能从 TOML 里读写 "3s" / "10s" 这样的写法
+jiff        = { workspace = true }
 
 [dev-dependencies]
 rstest = { workspace = true }
